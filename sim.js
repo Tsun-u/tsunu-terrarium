@@ -69,11 +69,26 @@ const Sim = {};
   }
 
   // ---- 行為機 ----
-  function pickAction(c, t, rng) {
+  const PARTNER_ATTRACT_DIST = 60;
+  const PARTNER_ATTRACT_CHANCE = 0.5;
+  const PARTNER_ATTRACT_NOISE = 0.5; // ±0.5 rad
+
+  function pickAction(c, t, rng, world) {
     const r = rng();
     if (r < 0.55) {
       c.action = 'walk';
-      const ang = rng() * Math.PI * 2;
+      let ang = rng() * Math.PI * 2;
+      // 組家庭後常一起行動：partnerId 有值且距離伴侶 > 60 時，五成機率改朝伴侶方向
+      // （帶 ±0.5 rad 噪聲）；距離近時維持純隨機，避免黏太緊不自然。
+      if (c.partnerId != null) {
+        const partner = findCreature(world, c.partnerId);
+        if (partner) {
+          const dx = partner.x - c.x, dy = partner.y - c.y;
+          if (dx * dx + dy * dy > PARTNER_ATTRACT_DIST * PARTNER_ATTRACT_DIST && rng() < PARTNER_ATTRACT_CHANCE) {
+            ang = Math.atan2(dy, dx) + (rng() * 2 - 1) * PARTNER_ATTRACT_NOISE;
+          }
+        }
+      }
       const speedMul = c.stage === 'elder' ? 0.5 : 1;
       const spd = randRange(rng, C.WALK_SPEED_MIN, C.WALK_SPEED_MAX) * c.genes.speed * speedMul;
       c.vx = Math.cos(ang) * spd; c.vy = Math.sin(ang) * spd;
@@ -146,7 +161,7 @@ const Sim = {};
     const toRemove = [];
 
     for (const c of world.creatures) {
-      if (t >= c.actionUntil && c.stage !== 'egg') pickAction(c, t, rng);
+      if (t >= c.actionUntil && c.stage !== 'egg') pickAction(c, t, rng, world);
       stepMovement(c);
 
       if (c.stage === 'egg' && t >= c.bornTick + C.EGG_SEC) {

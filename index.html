@@ -8,8 +8,10 @@
 <title>🌱 像素生態瓶</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; }
-  html, body {
-    width: 100%; height: 100%; overflow: hidden;
+  /* 標準文件捲動：畫布比視窗大時，整頁捲動探索世界（不變形、不巢狀捲動） */
+  html { height: 100%; }
+  body {
+    width: 100%; min-height: 100%; margin: 0;
     background: #1a1e2a;
     color: #e8ecf4;
     line-height: 1.5;
@@ -21,10 +23,9 @@
     outline: none;
     box-shadow: 0 0 0 3px rgba(255, 213, 79, .85);
   }
-  /* 世界畫布：整數倍放大置中，維持點陣硬邊 */
+  /* 世界畫布：cover 等比縮放（鋪滿視窗、超出部分捲動），維持點陣硬邊 */
   #world {
-    position: absolute; left: 50%; top: 50%;
-    transform: translate(-50%, -50%);
+    display: block;
     image-rendering: pixelated;
     background: #000;
   }
@@ -85,21 +86,23 @@
   if (n > 1) C.TIME_SCALE = Math.min(n, 86400);
 })();
 
-// 世界寬度隨螢幕比例決定（高度固定），畫面幾乎無邊貼合視窗。
-// 場景/星空/事件座標皆為比例式；跨裝置開檔時座標會夾回範圍，安全。
-(function fitWorldAspect() {
-  const aspect = window.innerWidth / Math.max(1, window.innerHeight);
-  C.WORLD_W = Math.round(Math.min(480, Math.max(300, C.WORLD_H * aspect)));
-})();
-
-// 畫布貼合視窗（保持比例、幾乎無邊；pixelated 下非整數倍縮放觀感可接受）
+// 等比 cover 縮放：兩軸都鋪滿視窗、絕不變形；超出的方向用捲動探索。
+// 世界尺寸固定（跨裝置一致），手機直向會左右滑找小動物。
+let firstFit = true;
 function fitCanvas() {
   const cv = document.getElementById('world');
   if (cv.width !== C.WORLD_W) { cv.width = C.WORLD_W; cv.height = C.WORLD_H; }
-  const scale = Math.max(1, Math.min(
+  const scale = Math.max(1, Math.max(
     window.innerWidth / C.WORLD_W, window.innerHeight / C.WORLD_H));
-  cv.style.width = Math.floor(C.WORLD_W * scale) + 'px';
-  cv.style.height = Math.floor(C.WORLD_H * scale) + 'px';
+  const w = Math.ceil(C.WORLD_W * scale), h = Math.ceil(C.WORLD_H * scale);
+  cv.style.width = w + 'px';
+  cv.style.height = h + 'px';
+  if (firstFit) {   // 開場捲到畫面中央偏地面
+    firstFit = false;
+    requestAnimationFrame(() => window.scrollTo(
+      Math.max(0, (w - window.innerWidth) / 2),
+      Math.max(0, (h - window.innerHeight) * 0.6)));
+  }
 }
 window.addEventListener('resize', fitCanvas);
 fitCanvas();

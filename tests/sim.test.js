@@ -339,3 +339,64 @@ test('newWorld 未傳 founderGenes 時行為不變（省略參數、明確傳 un
     assert.deepStrictEqual(withoutArg.creatures[i].genes, withUndefined.creatures[i].genes);
   }
 });
+
+// ---- 伴侶相聚傾向：pickAction 是私有函式，只能透過 Sim.tick() 間接驗證 ----
+// 統計檢定：多次決策後「實際走路方向 vs 朝伴侶方向」的角度差平均值。
+// 純隨機基準（方向均勻分布於 [0,2π)）下，與任一固定方向的最小夾角期望值 = π/2 ≈ 1.5708。
+// 每次 tick 後把 a 的座標重置回起點，隔離「移動本身改變距離」這個混淆變因，
+// 只單純檢驗 pickAction 在給定距離下的方向決策。
+function sampleWalkAngleDiff(world, rng, a, targetAngle, resetPos, maxTicks, minSamples) {
+  let walkSamples = 0, angleDiffSum = 0;
+  let lastActionUntil = a.actionUntil;
+  for (let i = 0; i < maxTicks && walkSamples < minSamples; i++) {
+    Sim.tick(world, rng);
+    resetPos();
+    if (a.actionUntil !== lastActionUntil) {
+      lastActionUntil = a.actionUntil;
+      if (a.action === 'walk') {
+        const actualAngle = Math.atan2(a.vy, a.vx);
+        let diff = Math.abs(actualAngle - targetAngle);
+        if (diff > Math.PI) diff = 2 * Math.PI - diff;
+        angleDiffSum += diff;
+        walkSamples++;
+      }
+    }
+  }
+  assert.ok(walkSamples >= minSamples, `應收集到足夠 walk 樣本，實際 ${walkSamples}`);
+  return angleDiffSum / walkSamples;
+}
+
+test('伴侶相聚傾向：距離>60 時走路方向顯著偏向伴侶', () => {
+  const rng = rngFactory(30);
+  const world = Sim.newWorld(rng);
+  const [a, b] = world.creatures;
+  a.partnerId = b.id; b.partnerId = a.id;
+  a.x = 50; a.y = 120;
+  b.x = 250; b.y = 120; // 距離 200，遠大於 60 門檻（正東方向，targetAngle=0）
+  b.genes = { ...b.genes, speed: 0 }; // b 固定不動，避免距離隨模擬漂移
+  // 拉長生命週期，避免測試期間化星把 a/b 移出 world.creatures
+  a.starTick = world.tick + 999999; a.elderTick = a.starTick - 1;
+  b.starTick = world.tick + 999999; b.elderTick = b.starTick - 1;
+
+  const targetAngle = Math.atan2(b.y - a.y, b.x - a.x);
+  const avgDiff = sampleWalkAngleDiff(world, rng, a, targetAngle, () => { a.x = 50; a.y = 120; }, 30000, 150);
+  // 理論值：50% 純隨機(期望π/2≈1.571) + 50% 朝伴侶±0.5rad噪聲(期望0.25) ≈ 0.91；門檻抓寬鬆但足以區分有無偏向
+  assert.ok(avgDiff < 1.2, `平均角度差 ${avgDiff.toFixed(3)} rad 應顯著小於純隨機基準 π/2≈1.571，代表走路方向偏向伴侶`);
+});
+
+test('伴侶相聚傾向：距離<=60 時維持純隨機，不強制朝伴侶', () => {
+  const rng = rngFactory(31);
+  const world = Sim.newWorld(rng);
+  const [a, b] = world.creatures;
+  a.partnerId = b.id; b.partnerId = a.id;
+  a.x = 100; a.y = 120;
+  b.x = 130; b.y = 120; // 距離 30，小於 60 門檻
+  b.genes = { ...b.genes, speed: 0 };
+  a.starTick = world.tick + 999999; a.elderTick = a.starTick - 1;
+  b.starTick = world.tick + 999999; b.elderTick = b.starTick - 1;
+
+  const targetAngle = Math.atan2(b.y - a.y, b.x - a.x);
+  const avgDiff = sampleWalkAngleDiff(world, rng, a, targetAngle, () => { a.x = 100; a.y = 120; }, 30000, 150);
+  // 近距離不該被拉向伴侶，平均值應接近純隨機基準 π/2≈1.571（留統計容差）
+  assert.ok(avgDiff > 1.3, `平均角度差 ${avgDiff.toFixed(3)} rad 應接近純隨機基準，太小代表距離門檻判斷失效`);
+});
