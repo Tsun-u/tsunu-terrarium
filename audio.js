@@ -82,6 +82,89 @@ const Audio2 = {};
     petals:    () => { [1047, 932, 784].forEach((f, i) => tone(f, 0.35, 'sine', 0.25, i * 0.25)); },
   };
 
+  /* ---------- 生成式音樂盒：五聲音階鈴音＋和弦墊，永不重複的溫柔旋律 ---------- */
+
+  let musicBus = null;
+  let musicOn = true;
+
+  function startMusicBox() {
+    // 回聲：讓鈴音有「空瓶子裡的回響」
+    const delay = ac.createDelay(1);
+    delay.delayTime.value = 0.42;
+    const fb = ac.createGain(); fb.gain.value = 0.3;
+    const wet = ac.createGain(); wet.gain.value = 0.45;
+    delay.connect(fb); fb.connect(delay); delay.connect(wet); wet.connect(master);
+    musicBus = ac.createGain();
+    musicBus.gain.value = 1;
+    musicBus.connect(master);
+    musicBus.connect(delay);
+
+    const PENTA = [261.63, 293.66, 329.63, 392.0, 440.0];   // C D E G A
+    const CHORDS = [
+      [130.81, 196.0, 329.63],    // C:  C3 G3 E4
+      [110.0, 164.81, 261.63],    // Am: A2 E3 C4
+      [87.31, 174.61, 220.0],     // F:  F2 F3 A3
+      [98.0, 146.83, 329.63],     // Gsus: G2 D3 E4
+    ];
+    let chordIdx = 0;
+
+    function pluck(freq, vol, when = 0) {
+      if (!musicOn) return;
+      const t = ac.currentTime + when;
+      const o = ac.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = freq * (1 + (Math.random() * 0.002 - 0.001));   // 微 detune，有機感
+      const h = ac.createOscillator();
+      h.type = 'sine'; h.frequency.value = freq * 3;                       // 三倍頻泛音＝音樂盒質感
+      const g = ac.createGain(), hg = ac.createGain();
+      g.gain.setValueAtTime(vol, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 2.6);
+      hg.gain.setValueAtTime(vol * 0.16, t);
+      hg.gain.exponentialRampToValueAtTime(0.001, t + 1.1);
+      o.connect(g); g.connect(musicBus);
+      h.connect(hg); hg.connect(musicBus);
+      o.start(t); o.stop(t + 2.8);
+      h.start(t); h.stop(t + 1.3);
+    }
+
+    function chordPad() {
+      if (musicOn) {
+        const notes = CHORDS[chordIdx % CHORDS.length];
+        chordIdx += Math.random() < 0.7 ? 1 : 2;   // 偶爾跳一個和弦，不落入固定循環
+        const t = ac.currentTime;
+        notes.forEach(f => {
+          const o = ac.createOscillator();
+          o.type = 'triangle'; o.frequency.value = f;
+          const g = ac.createGain();
+          g.gain.setValueAtTime(0.0001, t);
+          g.gain.linearRampToValueAtTime(0.05, t + 2.5);      // 緩慢浮現
+          g.gain.linearRampToValueAtTime(0.0001, t + 9);      // 緩慢退場
+          o.connect(g); g.connect(musicBus);
+          o.start(t); o.stop(t + 9.5);
+        });
+      }
+      setTimeout(chordPad, 9000 + Math.random() * 5000);
+    }
+
+    function melodyLoop() {
+      if (musicOn) {
+        const night = isNightFn();
+        const oct = night ? 1 : 2;                            // 夜晚低八度、更沉靜
+        const f = PENTA[Math.floor(Math.random() * PENTA.length)] * oct *
+          (Math.random() < 0.25 ? 2 : 1);                     // 偶爾再高一個八度的亮點
+        pluck(f, night ? 0.32 : 0.42);
+        if (Math.random() < 0.35) {                           // 三成機率接一個短句
+          pluck(PENTA[Math.floor(Math.random() * PENTA.length)] * oct, 0.28, 0.38);
+        }
+      }
+      const night = isNightFn();
+      setTimeout(melodyLoop, (night ? 2400 : 1500) + Math.random() * (night ? 3200 : 1900));
+    }
+
+    setTimeout(chordPad, 1200);
+    setTimeout(melodyLoop, 2600);
+  }
+
   /* ---------- 對外介面 ---------- */
 
   // 在第一次使用者手勢後呼叫（autoplay 政策）
@@ -93,7 +176,10 @@ const Audio2 = {};
     if (ac.state === 'suspended') ac.resume();
     startWind();
     setTimeout(natureLoop, 3000);
+    startMusicBox();
   };
+
+  Audio2.setMusic = on => { musicOn = on; };
 
   Audio2.setEnabled = function (on) {
     enabled = on;
