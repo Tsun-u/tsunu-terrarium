@@ -1014,6 +1014,7 @@ const UI = {};
     let delta = 0;
     for (const ev of events) {
       if (ev.type === 'born') { delta += C.HEART_BORN; sfx.born(); }
+      else if (ev.type === 'family') { if (window.Audio2) Audio2.eventSound('family'); }
       else if (ev.type === 'matured') { delta += C.HEART_MATURE; sfx.mature(); }
       else if (ev.type === 'starred') {
         delta += C.HEART_STAR; sfx.star();

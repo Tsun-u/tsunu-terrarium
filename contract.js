@@ -123,8 +123,12 @@ const C = {
      Sim.extendLife(world, id)          -> { ok, price }   // 扣款+延壽+lifeBuys++；
                                             // 回春：elder 且延壽後距化星 > ELDER_BEFORE_SEC → stage 'adult'
      Sim.matchmake(world, idA, idB)     -> { ok }          // 兩隻 adult/elder 且單身才成立
-     Sim.buyDecor(world, kind, x, y)    -> { ok }
+     Sim.buyDecor(world, kind, x, y)    -> { ok, price }   // 已擁有的 kind 收 0（商店即倉庫）
      Sim.moveDecor(world, index, x, y)  -> void            // 免費搬家
+     Sim.removeDecor(world, index)      -> { ok }          // pond 不可移除
+     World.ownedDecor: string[]、Creature.meetCounts: {id:次數}（好感度）
+       // 兩者走欄位存在性檢查補預設，SAVE_VER 不變
+     action 新增 'gaze'（老年看天空；render 畫視線星光）
    --------------------------------------------------------------------- */
 
 // 可重現的 LCG 隨機數（測試注入 seed；正式用 Date.now() 當 seed）

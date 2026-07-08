@@ -267,6 +267,72 @@ test('moveDecor：更新座標、不動愛心', () => {
   assert.strictEqual(world.hearts, heartsBefore);
 });
 
+// ---- 追加任務：裝飾移除＋0 愛心購回（商店＝倉庫，不做庫存介面）----
+
+test('removeDecor：從 decor 移除；pond 維持一次性不可移除；壞 index 安全失敗', () => {
+  const world = Sim.newWorld(rngFactory(50));
+  world.hearts = 1000;
+  Sim.buyDecor(world, 'flower', 10, 10);
+  Sim.buyDecor(world, 'pond', 50, 50);
+  assert.strictEqual(world.decor.length, 2);
+
+  let res = Sim.removeDecor(world, 0); // flower
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(world.decor.length, 1);
+  assert.strictEqual(world.decor[0].kind, 'pond');
+
+  res = Sim.removeDecor(world, 0); // 現在 index 0 是 pond
+  assert.strictEqual(res.ok, false, 'pond 應維持一次性不可移除');
+  assert.strictEqual(world.decor.length, 1);
+
+  res = Sim.removeDecor(world, 99); // 不存在的 index
+  assert.strictEqual(res.ok, false);
+  assert.strictEqual(world.decor.length, 1);
+});
+
+test('buyDecor 已擁有的 kind：移除後再買免費（price:0），未買過的種類照原價', () => {
+  const world = Sim.newWorld(rngFactory(51));
+  world.hearts = 1000;
+
+  let res = Sim.buyDecor(world, 'flower', 10, 10);
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.price, C.SHOP.decor.flower, '第一次購買照原價');
+  assert.strictEqual(world.hearts, 1000 - C.SHOP.decor.flower);
+  assert.deepStrictEqual(world.ownedDecor, ['flower']);
+
+  const heartsBeforeRemove = world.hearts;
+  Sim.removeDecor(world, 0);
+
+  res = Sim.buyDecor(world, 'flower', 20, 20);
+  assert.strictEqual(res.ok, true);
+  assert.strictEqual(res.price, 0, '已擁有過的種類，移除後再買應免費');
+  assert.strictEqual(world.hearts, heartsBeforeRemove, '0 元購買不應扣款');
+  assert.deepStrictEqual(world.ownedDecor, ['flower'], '不該重複記錄已擁有的種類');
+
+  res = Sim.buyDecor(world, 'lantern', 30, 30);
+  assert.strictEqual(res.price, C.SHOP.decor.lantern, '未買過的種類應照原價');
+});
+
+test('ownedDecor 存檔相容：舊檔缺少此欄位時 load() 補空陣列', () => {
+  let store = {};
+  global.localStorage = {
+    getItem: (k) => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null),
+    setItem: (k, v) => { store[k] = String(v); },
+    removeItem: (k) => { delete store[k]; },
+  };
+  try {
+    const oldData = {
+      ver: 2, tick: 100, lastRealMs: Date.now(), hearts: 50, nextId: 8,
+      creatures: [], archive: [], decor: [], // 無 ownedDecor（舊存檔）
+    };
+    store[C.SAVE_KEY] = JSON.stringify(oldData);
+    const loaded = Sim.load();
+    assert.deepStrictEqual(loaded.world.ownedDecor, []);
+  } finally {
+    delete global.localStorage;
+  }
+});
+
 test('v1 存檔遷移：補 decor=[]、每隻 lifeBuys=0，其餘欄位保留，重存後 ver 升 2', () => {
   let store = {};
   global.localStorage = {
@@ -399,4 +465,143 @@ test('伴侶相聚傾向：距離<=60 時維持純隨機，不強制朝伴侶', 
   const avgDiff = sampleWalkAngleDiff(world, rng, a, targetAngle, () => { a.x = 100; a.y = 120; }, 30000, 150);
   // 近距離不該被拉向伴侶，平均值應接近純隨機基準 π/2≈1.571（留統計容差）
   assert.ok(avgDiff > 1.3, `平均角度差 ${avgDiff.toFixed(3)} rad 應接近純隨機基準，太小代表距離門檻判斷失效`);
+});
+
+// ---- 設計文件對帳缺口：好感度累積 / 幼年跟親代 / 老年看天空 ----
+
+test('好感度累積：相遇次數增加會提高配對機率，直到成家並清除紀錄', () => {
+  const fixedR = 0.06; // 固定回傳，介於 baseline FAMILY_CHANCE(0.03) 和封頂(0.03+0.05=0.08) 之間
+  const rng = () => fixedR;
+  const world = Sim.newWorld(rng);
+  const [a, b] = world.creatures;
+  a.x = b.x = 100; a.y = b.y = 100; // 同位置，必定在 MEET_RADIUS 內
+  a.actionUntil = 999999; b.actionUntil = 999999; // 避免測試期間觸發 pickAction 移動位置
+  a.partnerId = null; b.partnerId = null;
+
+  Sim.tick(world, rng);
+  assert.strictEqual(a.partnerId, null, '第一次相遇機率(0.03)低於固定 rng(0.06)，不該成家');
+  assert.strictEqual(a.meetCounts[b.id], 1, '未成家應記一次相遇次數');
+  assert.strictEqual(b.meetCounts[a.id], 1);
+
+  let paired = false;
+  for (let i = 0; i < 10; i++) {
+    Sim.tick(world, rng);
+    if (a.partnerId != null) { paired = true; break; }
+  }
+  assert.ok(paired, '相遇次數累積夠多次後，機率應超過固定 rng 值而成家');
+  assert.strictEqual(a.partnerId, b.id);
+  assert.strictEqual(b.partnerId, a.id);
+  assert.deepStrictEqual(a.meetCounts, {}, '成家後應清除好感度紀錄');
+  assert.deepStrictEqual(b.meetCounts, {});
+});
+
+test('好感度累積 存檔相容：舊存檔缺少 meetCounts 欄位時 load() 補空物件', () => {
+  let store = {};
+  global.localStorage = {
+    getItem: (k) => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null),
+    setItem: (k, v) => { store[k] = String(v); },
+    removeItem: (k) => { delete store[k]; },
+  };
+  try {
+    const oldCreature = {
+      id: 0, name: '波嚕', gen: 0, parents: null, partnerId: null,
+      genes: Genetics.founderGenes(0),
+      bornTick: 0, matureTick: 0, elderTick: 999999, starTick: 1000000,
+      stage: 'adult', x: 100, y: 80, vx: 0, vy: 0, action: 'idle', actionUntil: 20,
+      nextEggTick: null, lastPetTick: -1, starIdx: null, lifeBuys: 0, // 無 meetCounts（舊存檔）
+    };
+    const oldData = {
+      ver: 2, tick: 100, lastRealMs: Date.now(), hearts: 50, nextId: 8,
+      creatures: [oldCreature], archive: [], decor: [],
+    };
+    store[C.SAVE_KEY] = JSON.stringify(oldData);
+
+    const loaded = Sim.load();
+    assert.ok(loaded);
+    assert.deepStrictEqual(loaded.world.creatures[0].meetCounts, {});
+    assert.strictEqual(loaded.world.creatures[0].name, '波嚕'); // 其餘欄位保留
+  } finally {
+    delete global.localStorage;
+  }
+});
+
+test('幼年跟親代：child 走路方向偏向距離較近的在世親代', () => {
+  const rng = rngFactory(40);
+  const world = Sim.newWorld(rng);
+  const [p1, p2] = world.creatures;
+  const child = {
+    id: world.nextId++, name: 'testchild', gen: 1, parents: [p1.id, p2.id], partnerId: null,
+    genes: Genetics.founderGenes(0),
+    bornTick: 0, matureTick: 999999, elderTick: 9999998, starTick: 9999999,
+    stage: 'child', x: 100, y: 120, vx: 0, vy: 0, action: 'idle', actionUntil: 0,
+    nextEggTick: null, lastPetTick: -1, starIdx: null, lifeBuys: 0, meetCounts: {},
+  };
+  world.creatures.push(child);
+
+  p1.x = 300; p1.y = 120; // 距離 200，較遠
+  p2.x = 200; p2.y = 120; // 距離 100，較近（兩者都 > CHILD_FOLLOW_DIST(40) 門檻）
+  p1.genes = { ...p1.genes, speed: 0 }; p2.genes = { ...p2.genes, speed: 0 }; // 固定不動避免距離漂移
+  p1.starTick = world.tick + 999999; p1.elderTick = p1.starTick - 1;
+  p2.starTick = world.tick + 999999; p2.elderTick = p2.starTick - 1;
+
+  const targetAngle = Math.atan2(p2.y - child.y, p2.x - child.x); // 應偏向較近的 p2
+  const avgDiff = sampleWalkAngleDiff(world, rng, child, targetAngle, () => { child.x = 100; child.y = 120; }, 30000, 150);
+  assert.ok(avgDiff < 1.2, `平均角度差 ${avgDiff.toFixed(3)} rad 應顯著小於純隨機基準，代表幼年走路方向偏向較近的親代`);
+});
+
+test('幼年跟親代：兩位親代皆已化星（不在世）時不 crash，照舊純隨機', () => {
+  const rng = rngFactory(41);
+  const world = Sim.newWorld(rng);
+  const child = {
+    id: world.nextId++, name: 'orphanchild', gen: 1, parents: [99998, 99999], partnerId: null, // 不存在的親代 id
+    genes: Genetics.founderGenes(0),
+    bornTick: 0, matureTick: 999999, elderTick: 9999998, starTick: 9999999,
+    stage: 'child', x: 100, y: 120, vx: 0, vy: 0, action: 'idle', actionUntil: 0,
+    nextEggTick: null, lastPetTick: -1, starIdx: null, lifeBuys: 0, meetCounts: {},
+  };
+  world.creatures.push(child);
+
+  assert.doesNotThrow(() => {
+    for (let i = 0; i < 50; i++) Sim.tick(world, rng);
+  });
+  assert.ok(isFinite(child.x) && isFinite(child.y), '座標應維持有限數值，不因親代不存在而出錯');
+});
+
+test('老年看天空：elder 有機會進入 gaze 狀態，靜止且持續 20-40 tick', () => {
+  const rng = rngFactory(42);
+  const world = Sim.newWorld(rng);
+  const c = world.creatures[0];
+  c.stage = 'elder';
+  c.starTick = world.tick + 999999; // 避免測試期間化星
+
+  let sawGaze = false;
+  let lastActionUntil = c.actionUntil;
+  for (let i = 0; i < 5000 && !sawGaze; i++) {
+    const tBefore = world.tick;
+    Sim.tick(world, rng);
+    if (c.actionUntil !== lastActionUntil) {
+      lastActionUntil = c.actionUntil;
+      if (c.action === 'gaze') {
+        sawGaze = true;
+        assert.strictEqual(c.vx, 0, 'gaze 應靜止');
+        assert.strictEqual(c.vy, 0, 'gaze 應靜止');
+        const duration = c.actionUntil - tBefore;
+        assert.ok(duration >= 20 && duration <= 40, `gaze 持續時間 ${duration} 應在 20~40 tick`);
+      }
+    }
+  }
+  assert.ok(sawGaze, '多次決策後 elder 應至少進入一次 gaze 狀態');
+});
+
+test('老年看天空：非 elder 不會出現 gaze 狀態', () => {
+  const rng = rngFactory(43);
+  const world = Sim.newWorld(rng);
+  const c = world.creatures[0];
+  c.stage = 'adult';
+  c.starTick = world.tick + 999999; c.elderTick = world.tick + 999998; // 避免變成 elder
+
+  for (let i = 0; i < 2000; i++) {
+    Sim.tick(world, rng);
+    assert.notStrictEqual(c.action, 'gaze', 'adult 不該出現 gaze 狀態');
+  }
 });

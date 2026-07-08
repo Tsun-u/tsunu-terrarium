@@ -38,6 +38,7 @@ const Sim = {};
       y: C.SKY_H + 8 + rng() * (C.WORLD_H - C.SKY_H - 16),
       vx: 0, vy: 0, action: 'idle', actionUntil: 10 + Math.floor(rng() * 31),
       nextEggTick: null, lastPetTick: -C.PET_COOLDOWN_SEC - 1, starIdx: null, lifeBuys: 0,
+      meetCounts: {}, // { [otherId]: 未成家相遇次數 }，成家後清除，用來累積好感度
     };
   }
 
@@ -54,13 +55,14 @@ const Sim = {};
       stage: 'egg', x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, vx: 0, vy: 0,
       action: 'idle', actionUntil: t + C.EGG_SEC,
       nextEggTick: null, lastPetTick: -C.PET_COOLDOWN_SEC - 1, starIdx: null, lifeBuys: 0,
+      meetCounts: {},
     };
     world.creatures.push(egg);
     return egg;
   }
 
   function newWorld(rng, founderGenes) {
-    const world = { tick: 0, hearts: 0, nextId: 0, creatures: [], archive: [], decor: [] };
+    const world = { tick: 0, hearts: 0, nextId: 0, creatures: [], archive: [], decor: [], ownedDecor: [] };
     for (let i = 0; i < C.FOUNDER_COUNT; i++) {
       const customGenes = founderGenes ? founderGenes[i] : null;
       world.creatures.push(makeFounder(i, world, rng, customGenes));
@@ -72,15 +74,41 @@ const Sim = {};
   const PARTNER_ATTRACT_DIST = 60;
   const PARTNER_ATTRACT_CHANCE = 0.5;
   const PARTNER_ATTRACT_NOISE = 0.5; // ±0.5 rad
+  const CHILD_FOLLOW_DIST = 40;
+  const CHILD_FOLLOW_CHANCE = 0.5;
+  const CHILD_FOLLOW_NOISE = 0.5; // 同伴侶相聚邏輯的噪聲量
+
+  // 幼年跟親代：兩位親代中距離較近的在世者；都化星（不在世）則回傳 null，呼叫端照舊純隨機
+  function nearestLivingParent(c, world) {
+    if (!c.parents) return null;
+    const candidates = c.parents.map((pid) => findCreature(world, pid)).filter(Boolean);
+    if (candidates.length === 0) return null;
+    if (candidates.length === 1) return candidates[0];
+    const distSq = (p) => (p.x - c.x) * (p.x - c.x) + (p.y - c.y) * (p.y - c.y);
+    return distSq(candidates[0]) <= distSq(candidates[1]) ? candidates[0] : candidates[1];
+  }
 
   function pickAction(c, t, rng, world) {
     const r = rng();
+    const isElder = c.stage === 'elder';
+    const idleUpper = isElder ? 0.70 : 0.85; // elder 的 idle 30% 切一半給 gaze（15/15）
+    const gazeUpper = 0.85;
+
     if (r < 0.55) {
       c.action = 'walk';
       let ang = rng() * Math.PI * 2;
-      // 組家庭後常一起行動：partnerId 有值且距離伴侶 > 60 時，五成機率改朝伴侶方向
-      // （帶 ±0.5 rad 噪聲）；距離近時維持純隨機，避免黏太緊不自然。
-      if (c.partnerId != null) {
+      if (c.stage === 'child') {
+        // 幼年跟親代：距離較近的在世親代 > 40 時，五成機率朝親代方向（帶噪聲）
+        const guardian = nearestLivingParent(c, world);
+        if (guardian) {
+          const dx = guardian.x - c.x, dy = guardian.y - c.y;
+          if (dx * dx + dy * dy > CHILD_FOLLOW_DIST * CHILD_FOLLOW_DIST && rng() < CHILD_FOLLOW_CHANCE) {
+            ang = Math.atan2(dy, dx) + (rng() * 2 - 1) * CHILD_FOLLOW_NOISE;
+          }
+        }
+      } else if (c.partnerId != null) {
+        // 組家庭後常一起行動：partnerId 有值且距離伴侶 > 60 時，五成機率改朝伴侶方向
+        // （帶 ±0.5 rad 噪聲）；距離近時維持純隨機，避免黏太緊不自然。
         const partner = findCreature(world, c.partnerId);
         if (partner) {
           const dx = partner.x - c.x, dy = partner.y - c.y;
@@ -89,15 +117,20 @@ const Sim = {};
           }
         }
       }
-      const speedMul = c.stage === 'elder' ? 0.5 : 1;
+      const speedMul = isElder ? 0.5 : 1;
       const spd = randRange(rng, C.WALK_SPEED_MIN, C.WALK_SPEED_MAX) * c.genes.speed * speedMul;
       c.vx = Math.cos(ang) * spd; c.vy = Math.sin(ang) * spd;
-    } else if (r < 0.85) {
+    } else if (r < idleUpper) {
       c.action = 'idle'; c.vx = 0; c.vy = 0;
+    } else if (isElder && r < gazeUpper) {
+      // 老年看天空：面向上方靜止；視覺呈現（眼睛畫高）交給 render，sim 只給 action 值
+      c.action = 'gaze'; c.vx = 0; c.vy = 0;
     } else {
       c.action = 'sleep'; c.vx = 0; c.vy = 0;
     }
-    c.actionUntil = t + 10 + Math.floor(rng() * 31); // 10~40 tick
+    c.actionUntil = c.action === 'gaze'
+      ? t + 20 + Math.floor(rng() * 21) // gaze 持續稍長：20~40 tick
+      : t + 10 + Math.floor(rng() * 31); // 10~40 tick
   }
 
   function stepMovement(c) {
@@ -110,6 +143,9 @@ const Sim = {};
   }
 
   // ---- 相遇成家 ----
+  const AFFINITY_STEP = 0.005; // 好感度：每次相遇未成家，機率 += 這個量
+  const AFFINITY_CAP = 0.05;   // 好感度加成上限
+
   function meetAndPair(world, t, rng, events) {
     const creatures = world.creatures;
     for (let i = 0; i < creatures.length; i++) {
@@ -121,11 +157,18 @@ const Sim = {};
         const dx = a.x - b.x, dy = a.y - b.y;
         if (dx * dx + dy * dy > C.MEET_RADIUS * C.MEET_RADIUS) continue;
         // 找到最近的候選就擲一次骰，不論成敗都不再幫 a 找下一位（下個 tick 再重試）
-        if (rng() < C.FAMILY_CHANCE) {
+        // 好感度隨相遇次數微增：機率 = 基準 + min(封頂, 次數 × 每次增量)
+        const meetCount = a.meetCounts[b.id] || 0;
+        const chance = C.FAMILY_CHANCE + Math.min(AFFINITY_CAP, meetCount * AFFINITY_STEP);
+        if (rng() < chance) {
           a.partnerId = b.id; b.partnerId = a.id;
+          a.meetCounts = {}; b.meetCounts = {}; // 成家後清除好感度紀錄
           const interval = randRange(rng, C.EGG_INTERVAL_MIN_SEC, C.EGG_INTERVAL_MAX_SEC);
           a.nextEggTick = t + interval; b.nextEggTick = t + interval;
           events.push({ type: 'family', ids: [a.id, b.id] });
+        } else {
+          a.meetCounts[b.id] = meetCount + 1;
+          b.meetCounts[a.id] = (b.meetCounts[a.id] || 0) + 1;
         }
         break;
       }
@@ -244,6 +287,7 @@ const Sim = {};
     if (world.hearts < C.SHOP.match) return { ok: false };
     world.hearts -= C.SHOP.match;
     a.partnerId = b.id; b.partnerId = a.id;
+    a.meetCounts = {}; b.meetCounts = {}; // 跟 meetAndPair 一致：成家後清除好感度紀錄
     // 復用 meetAndPair 成功路徑的賦值：雙方同值 nextEggTick。介面無 rng（玩家單次觸發的
     // UI 動作，非模擬迴圈的一部分，不需要可重現性），直接用 Math.random()
     const interval = randRange(Math.random, C.EGG_INTERVAL_MIN_SEC, C.EGG_INTERVAL_MAX_SEC);
@@ -252,12 +296,15 @@ const Sim = {};
   }
 
   function buyDecor(world, kind, x, y) {
-    const price = C.SHOP.decor[kind];
-    if (price == null) return { ok: false };
-    if (world.hearts < price) return { ok: false };
+    const basePrice = C.SHOP.decor[kind];
+    if (basePrice == null) return { ok: false, price: 0 };
+    const owned = world.ownedDecor.includes(kind);
+    const price = owned ? 0 : basePrice; // 商店＝倉庫：買過的種類再買免費
+    if (world.hearts < price) return { ok: false, price };
     world.hearts -= price;
     world.decor.push({ kind, x, y });
-    return { ok: true };
+    if (!owned) world.ownedDecor.push(kind);
+    return { ok: true, price };
   }
 
   function moveDecor(world, index, x, y) {
@@ -266,12 +313,21 @@ const Sim = {};
     d.x = x; d.y = y;
   }
 
+  function removeDecor(world, index) {
+    const d = world.decor[index];
+    if (!d) return { ok: false };
+    if (d.kind === 'pond') return { ok: false }; // 池塘擴建維持一次性不可移除
+    world.decor.splice(index, 1);
+    return { ok: true };
+  }
+
   // ---- 存讀檔 ----
   function save(world) {
     const data = {
       ver: C.SAVE_VER, tick: world.tick, lastRealMs: Date.now(),
       hearts: world.hearts, nextId: world.nextId,
       creatures: world.creatures, archive: world.archive, decor: world.decor,
+      ownedDecor: world.ownedDecor,
     };
     localStorage.setItem(C.SAVE_KEY, JSON.stringify(data));
   }
@@ -292,9 +348,16 @@ const Sim = {};
       data.ver = C.SAVE_VER;
     }
 
+    // 欄位存在性檢查（不綁版本號）：缺漏就給預設值
+    for (const c of data.creatures) {
+      if (!c.meetCounts) c.meetCounts = {};
+    }
+    if (!Array.isArray(data.ownedDecor)) data.ownedDecor = [];
+
     const world = {
       tick: data.tick, hearts: data.hearts, nextId: data.nextId,
       creatures: data.creatures, archive: data.archive, decor: data.decor,
+      ownedDecor: data.ownedDecor,
     };
     const offlineSec = Math.max(0, (Date.now() - data.lastRealMs) / 1000) * C.TIME_SCALE;
     return { world, offlineSec };
@@ -307,6 +370,7 @@ const Sim = {};
   Sim.matchmake = matchmake;
   Sim.buyDecor = buyDecor;
   Sim.moveDecor = moveDecor;
+  Sim.removeDecor = removeDecor;
   Sim.save = save;
   Sim.load = load;
 })();

@@ -172,7 +172,8 @@ const Render = {};
         anims.push({ ...base, type: 'shell', dur: 600 });
         spriteCache.delete(cr.id + ':egg');
       } else if (ev.type === 'family') {
-        anims.push({ ...base, type: 'hearts', dur: 1300 });
+        // 喜結連理：紅線亮起＋愛心噴泉，持續 3.2 秒（值得被看見的時刻）
+        anims.push({ ...base, type: 'wedding', dur: 3200, data: { a: ev.ids[0], b: ev.ids[1] } });
       } else if (ev.type === 'starred') {
         // archive 紀錄沒有座標——用渲染端最後的平滑座標當升空起點
         const last = smooth.get(cr.id);
@@ -617,6 +618,13 @@ const Render = {};
       const zp = Math.floor(tMs / 600) % 3;
       for (let i = 0; i <= zp; i++) ctx.fillRect(x + sp.width + 1 + i * 2, y - 2 - i * 3, 1 + (i === 2 ? 1 : 0), 1);
     }
+    if (cr.action === 'gaze') {
+      // 老年看天空：視線方向的小星光緩緩閃爍
+      const tw = 0.5 + 0.5 * Math.sin(tMs / 520 + cr.id);
+      ctx.fillStyle = `rgba(255,255,240,${0.35 + tw * 0.55})`;
+      ctx.fillRect(x + sp.width + 1, y - 4, 1, 1);
+      ctx.fillRect(x + sp.width + 3, y - 8, 1, 1);
+    }
     if (dimmed) ctx.globalAlpha = 1;
   }
 
@@ -686,6 +694,27 @@ const Render = {};
         for (let k = 0; k < 3; k++) {
           const tt = Math.max(0, t - k * 0.15);
           drawHeart(a.x - 8 + k * 6, a.y - 14 - tt * 12, 1, `rgba(255,120,150,${1 - tt})`);
+        }
+      } else if (a.type === 'wedding') {
+        // 喜結連理：紅線在兩人之間脈動＋愛心噴泉八連發
+        const sa = smooth.get(a.data.a), sb = smooth.get(a.data.b);
+        if (sa && sb) {
+          const pulse = 0.5 + 0.5 * Math.sin(tMs / 180);
+          ctx.strokeStyle = `rgba(255,93,126,${(1 - t) * (0.5 + pulse * 0.5)})`;
+          ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          ctx.moveTo(sa.rx, sa.ry - 8);
+          ctx.quadraticCurveTo((sa.rx + sb.rx) / 2, Math.min(sa.ry, sb.ry) - 20, sb.rx, sb.ry - 8);
+          ctx.stroke();
+          ctx.lineWidth = 1;
+          const mx = (sa.rx + sb.rx) / 2, my = (sa.ry + sb.ry) / 2;
+          for (let k = 0; k < 8; k++) {
+            const tt = t * 3.2 - k * 0.28;              // 依序噴出
+            if (tt < 0 || tt > 1.4) continue;
+            const spread = (k % 2 ? 1 : -1) * (4 + k * 2.4);
+            drawHeart(mx + spread - 2, my - 14 - tt * 20, 1,
+              `rgba(255,${110 + (k % 3) * 30},${150 + (k % 2) * 40},${Math.max(0, 1 - tt / 1.4)})`);
+          }
         }
       } else if (a.type === 'bloom') {
         // 揭曉閃光：擴散白圈
