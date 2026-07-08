@@ -13,13 +13,18 @@ const Audio2 = {};
 
   const MASTER_VOL = 0.05;   // 整體極輕，陪伴不搶戲
 
+  let musicOut = null;   // 音樂匯流排（與音效分離，可獨立開關）
+
   function ensureCtx() {
     if (ac) return true;
     try {
       ac = new (window.AudioContext || window.webkitAudioContext)();
-      master = ac.createGain();
+      master = ac.createGain();                       // 音效＋環境音匯流排
       master.gain.value = enabled ? MASTER_VOL : 0;
       master.connect(ac.destination);
+      musicOut = ac.createGain();                     // 音樂盒匯流排
+      musicOut.gain.value = musicOn ? MASTER_VOL : 0;
+      musicOut.connect(ac.destination);
       return true;
     } catch (e) { return false; }
   }
@@ -93,10 +98,10 @@ const Audio2 = {};
     delay.delayTime.value = 0.42;
     const fb = ac.createGain(); fb.gain.value = 0.3;
     const wet = ac.createGain(); wet.gain.value = 0.45;
-    delay.connect(fb); fb.connect(delay); delay.connect(wet); wet.connect(master);
+    delay.connect(fb); fb.connect(delay); delay.connect(wet); wet.connect(musicOut);
     musicBus = ac.createGain();
     musicBus.gain.value = 1;
-    musicBus.connect(master);
+    musicBus.connect(musicOut);
     musicBus.connect(delay);
 
     const PENTA = [261.63, 293.66, 329.63, 392.0, 440.0];   // C D E G A
@@ -188,7 +193,10 @@ const Audio2 = {};
     startMusicBox();
   };
 
-  Audio2.setMusic = on => { musicOn = on; };
+  Audio2.setMusic = on => {
+    musicOn = on;
+    if (musicOut && ac) musicOut.gain.linearRampToValueAtTime(on ? MASTER_VOL : 0, ac.currentTime + 0.4);
+  };
 
   Audio2.setEnabled = function (on) {
     enabled = on;

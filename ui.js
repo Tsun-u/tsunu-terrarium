@@ -947,11 +947,20 @@ const UI = {};
     $('btnShop').onclick = () => {
       document.querySelector('#shopPanel') ? closePanel() : openShop();
     };
-    $('btnSound').onclick = () => {
-      soundOn = !soundOn;
-      $('btnSound').textContent = soundOn ? '🔊' : '🔇';
-      if (window.Audio2) Audio2.setEnabled(soundOn);
+    // 音效與音樂分離開關（偏好記進 localStorage）
+    let prefs = { sfx: true, music: true };
+    try { prefs = { ...prefs, ...JSON.parse(localStorage.getItem('terrarium_prefs') || '{}') } } catch (e) {}
+    const savePrefs = () => { try { localStorage.setItem('terrarium_prefs', JSON.stringify(prefs)); } catch (e) {} };
+    const applyAudioBtns = () => {
+      soundOn = prefs.sfx;
+      $('btnSound').textContent = prefs.sfx ? '🔊' : '🔇';
+      $('btnSound').classList.toggle('off', !prefs.sfx);
+      $('btnMusic').classList.toggle('off', !prefs.music);
+      if (window.Audio2) { Audio2.setEnabled(prefs.sfx); Audio2.setMusic(prefs.music); }
     };
+    applyAudioBtns();
+    $('btnSound').onclick = () => { prefs.sfx = !prefs.sfx; savePrefs(); applyAudioBtns(); };
+    $('btnMusic').onclick = () => { prefs.music = !prefs.music; savePrefs(); applyAudioBtns(); };
     document.addEventListener('keydown', e => {
       if (e.key === 'Escape') { setMode(null); closePanel(); closeCard(); }
     });
