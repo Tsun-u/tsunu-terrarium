@@ -68,6 +68,21 @@ const UI = {};
     background: rgba(255,255,255,.16); color: #fff; font-size: 15px; cursor: pointer;
   }
 
+  /* 速度選單（⏩ 展開直選，免循環） */
+  #speedMenu {
+    position: fixed; left: 174px; bottom: 64px; z-index: 60;
+    display: flex; gap: 6px; padding: 8px;
+    background: rgba(34,42,64,.96); border: 1px solid rgba(255,255,255,.18);
+    border-radius: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.45);
+    animation: chipIn2 .16s cubic-bezier(.34,1.4,.64,1);
+  }
+  #speedMenu .speed-chip {
+    min-width: 46px; height: 40px; border: 2px solid transparent; border-radius: 11px;
+    background: rgba(255,255,255,.12); color: #dde; font-family: inherit;
+    font-size: 15px; font-weight: bold; cursor: pointer;
+  }
+  #speedMenu .speed-chip.cur { border-color: #ffd54f; color: #ffd54f; }
+
   /* 兩段式確認氣泡（延壽選人） */
   #confirmBub {
     position: fixed; z-index: 78; transform: translate(-50%, -100%);
@@ -1066,10 +1081,29 @@ const UI = {};
     } else {
       if (![1, 2, 5, 10].includes(prefs.speed)) prefs.speed = 1;
       applySpeed();
-      $('btnSpeed').onclick = () => {
-        prefs.speed = SPEEDS[(SPEEDS.indexOf(prefs.speed) + 1) % SPEEDS.length];
-        savePrefs();
-        applySpeed();
+      // 展開直選選單（循環超過三項會逼人繞遠路）
+      $('btnSpeed').onclick = ev => {
+        ev.stopPropagation();
+        const old = document.getElementById('speedMenu');
+        if (old) { old.remove(); return; }
+        const m = document.createElement('div');
+        m.id = 'speedMenu';
+        SPEEDS.forEach(v => {
+          const b = document.createElement('button');
+          b.className = 'speed-chip' + (v === (prefs.speed || 1) ? ' cur' : '');
+          b.textContent = speedLabel(v);
+          b.onclick = e2 => {
+            e2.stopPropagation();
+            prefs.speed = v; savePrefs(); applySpeed();
+            m.remove();
+          };
+          m.appendChild(b);
+        });
+        document.body.appendChild(m);
+        setTimeout(() => document.addEventListener('click', function away(e3) {
+          if (!m.contains(e3.target)) m.remove();
+          document.removeEventListener('click', away);
+        }), 0);
       };
     }
     document.addEventListener('keydown', e => {
