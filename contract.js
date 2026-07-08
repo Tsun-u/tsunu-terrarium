@@ -67,7 +67,7 @@ const C = {
   // ---- 雲端存檔（第三階段）----
   // GCP OAuth Client ID（Web 應用程式、授權來源 https://tsun-u.github.io）。
   // 空字串 = 雲端功能隱藏，其餘功能不受影響。Client ID 屬公開資訊可入庫。
-  DRIVE_CLIENT_ID: '',
+  DRIVE_CLIENT_ID: '674654433726-tq25dneafbu0pm39pq6kl2kpdmgmnh3f.apps.googleusercontent.com',
 };
 
 /* ---------------------------------------------------------------------
