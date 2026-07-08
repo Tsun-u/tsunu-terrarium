@@ -542,10 +542,13 @@ const Render = {};
     s.ry = s.fy + (s.ty - s.fy) * p;
 
     const sp = getSprite(cr);
-    const x = Math.round(s.rx - sp.width / 2);
+    let x = Math.round(s.rx - sp.width / 2);
     let y = Math.round(s.ry - sp.height);
     if (cr.action === 'walk' && Math.abs(cr.x - s.rx) + Math.abs(cr.y - s.ry) > 0.3) {
       y += Math.sin(tMs / 110) > 0 ? -1 : 0;   // 走路小彈跳
+    }
+    if (cr.stage === 'egg') {
+      x += Math.round(Math.sin(tMs / 320 + cr.id * 1.7));   // 蛋微微搖晃
     }
     // 地板影子：跟體型成比例的橢圓（彈跳時影子留在地上）
     ctx.fillStyle = 'rgba(24,36,24,0.28)';
@@ -608,6 +611,17 @@ const Render = {};
     const idx = cr.starIdx ?? world.archive.indexOf(cr);
     return starPos(idx, world.archive.length);
   }
+
+  // 夜空點擊：找出座標附近的紀念星（給 ui 開星星小卡）
+  Render.starAt = function (world, x, y) {
+    let best = null, bd = 6;
+    world.archive.forEach((cr, i) => {
+      const p = starPos(cr.starIdx ?? i, world.archive.length);
+      const d = Math.hypot(p.x - x, p.y - y);
+      if (d < bd) { bd = d; best = cr; }
+    });
+    return best;
+  };
 
   const HEART = ['.X.X.', 'XXXXX', 'XXXXX', '.XXX.', '..X..'];
   function drawHeart(x, y, scale, color) {

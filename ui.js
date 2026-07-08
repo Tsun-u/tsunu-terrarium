@@ -368,10 +368,42 @@ const UI = {};
 
   /* ---------- 點擊世界 ---------- */
 
+  // 點夜空的星星：彈出那個孩子的小卡（肖像＋名字＋⭐）
+  function openStarCard(cr) {
+    closeCard();
+    openCardFor = null;
+    const card = document.createElement('div');
+    card.id = 'infoCard';
+    const cardClose = document.createElement('button');
+    cardClose.className = 'cardClose'; cardClose.textContent = '✕';
+    cardClose.onclick = ev => { ev.stopPropagation(); closeCard(); };
+    card.appendChild(cardClose);
+    card.appendChild(portrait({ ...cr, stage: 'adult' }, 4));
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const nm = document.createElement('div');
+    nm.className = 'nm'; nm.textContent = cr.name;
+    const st = document.createElement('div');
+    st.className = 'stage'; st.textContent = '⭐';
+    const tr = document.createElement('button');
+    tr.style.cssText = 'border:none;border-radius:9px;padding:3px 10px;font-family:inherit;' +
+      'font-size:14px;cursor:pointer;background:rgba(255,255,255,.16);color:#fff;';
+    tr.textContent = '🌳';
+    tr.onclick = ev => { ev.stopPropagation(); closeCard(); openTree(cr.id); };
+    meta.appendChild(nm); meta.appendChild(st); meta.appendChild(tr);
+    card.appendChild(meta);
+    $('uiLayer').appendChild(card);
+  }
+
   function onCanvasClick(e) {
     if (!W) return;
     const { x, y } = Render.toWorld(e.clientX, e.clientY);
     if (handleModeClick(x, y)) return;          // 購買/放置模式優先
+    // 夜空區：點紀念星看是哪個孩子
+    if (y < C.SKY_H - 2) {
+      const star = Render.starAt(W, x, y);
+      if (star) { openStarCard(star); return; }
+    }
     // 找最近的在世個體
     let best = null, bd = 12;
     for (const cr of W.creatures) {
