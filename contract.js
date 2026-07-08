@@ -59,8 +59,15 @@ const C = {
   EXTEND_SEC: 24 * 3600,
 
   // ---- 存檔 ----
+  // SAVE_KEY 由 bottles.js 在開機時路由到當前瓶（terrarium_bottle_<id>）；
+  // 無 bottles 模組時维持舊值（單瓶模式）。runtime 可變，同 TIME_SCALE 前例。
   SAVE_KEY: 'terrarium_v1',
   SAVE_VER: 2,
+
+  // ---- 雲端存檔（第三階段）----
+  // GCP OAuth Client ID（Web 應用程式、授權來源 https://tsun-u.github.io）。
+  // 空字串 = 雲端功能隱藏，其餘功能不受影響。Client ID 屬公開資訊可入庫。
+  DRIVE_CLIENT_ID: '',
 };
 
 /* ---------------------------------------------------------------------

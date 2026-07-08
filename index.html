@@ -39,6 +39,7 @@
   .corner-btn:active { transform: scale(.92); background: rgba(255,255,255,.25); }
   #btnTree  { left: 12px;  bottom: 12px; }
   #btnShop  { left: 66px;  bottom: 12px; filter: brightness(1.45) saturate(1.25); }
+  #btnBottles { left: 120px; bottom: 12px; }
   #btnStars { right: 66px; bottom: 12px; }
   #btnSound { right: 12px; bottom: 12px; }
   /* 愛心計數（右上，唯一常駐數字） */
@@ -58,6 +59,7 @@
 <div id="hearts">❤ <span id="heartNum">0</span></div>
 <button class="corner-btn" id="btnTree"  title="族譜">🌳</button>
 <button class="corner-btn" id="btnShop"  title="商店">🛍️</button>
+<button class="corner-btn" id="btnBottles" title="瓶子">🫙</button>
 <button class="corner-btn" id="btnStars" title="星空">⭐</button>
 <button class="corner-btn" id="btnSound" title="音效">🔊</button>
 <div id="uiLayer"></div>
@@ -69,6 +71,8 @@
 <script src="ui.js"></script>
 <script src="audio.js"></script>
 <script src="ceremony.js"></script>
+<script src="bottles.js"></script>
+<script src="drive.js"></script>
 <script>
 /* ---------- 開機流程 ---------- */
 
@@ -101,8 +105,18 @@ function startLoops(rng) {
     if (Render.onEvents) Render.onEvents(world, events);
     if (UI.onEvents) UI.onEvents(world, events);
   }, 1000);
-  setInterval(() => { if (Sim.save && world) Sim.save(world); }, 30000);
+  setInterval(() => {
+    if (Sim.save && world) {
+      Sim.save(world);
+      if (window.Bottles && Bottles.hasMeta()) Bottles.touchSaved();
+    }
+  }, 30000);
   if (UI.init) UI.init(world);
+  const btn = document.getElementById('btnBottles');
+  if (window.Bottles && Bottles.hasMeta()) {
+    document.title = `🌱 ${Bottles.activeName() || '像素生態瓶'}`;
+    btn.onclick = () => Bottles.openPanel(world);
+  } else if (btn) btn.style.display = 'none';
 }
 function boot() {
   if (typeof Sim.newWorld !== 'function') {
@@ -110,26 +124,34 @@ function boot() {
     return;
   }
   const rng = rngFactory(Date.now() >>> 0);
-  const loaded = Sim.load ? Sim.load() : null;
-  if (loaded) {
-    world = loaded.world;
-    // 地圖放大後的座標防護：把舊存檔的個體與裝飾夾回地面活動範圍
-    const clampY = y => Math.min(C.WORLD_H - 8, Math.max(C.SKY_H + 8, y));
-    const clampX = x => Math.min(C.WORLD_W - 8, Math.max(8, x));
-    world.creatures.forEach(c => { c.x = clampX(c.x); c.y = clampY(c.y); });
-    (world.decor || []).forEach(d => { if (d.kind !== 'pond') { d.x = clampX(d.x); d.y = clampY(d.y); } });
-    if (loaded.offlineSec > 60) {
-      const summary = Sim.fastForward(world, loaded.offlineSec, rng);
-      if (UI.showSummary) UI.showSummary(world, summary);
+  // 瓶子路由：決定進當前瓶還是辦開瓶儀式
+  const route = window.Bottles ? Bottles.init()
+    : (localStorage.getItem(C.SAVE_KEY) ? 'load' : 'ceremony');
+  if (route === 'load') {
+    const loaded = Sim.load ? Sim.load() : null;
+    if (loaded) {
+      world = loaded.world;
+      // 地圖放大後的座標防護：把舊存檔的個體與裝飾夾回地面活動範圍
+      const clampY = y => Math.min(C.WORLD_H - 8, Math.max(C.SKY_H + 8, y));
+      const clampX = x => Math.min(C.WORLD_W - 8, Math.max(8, x));
+      world.creatures.forEach(c => { c.x = clampX(c.x); c.y = clampY(c.y); });
+      (world.decor || []).forEach(d => { if (d.kind !== 'pond') { d.x = clampX(d.x); d.y = clampY(d.y); } });
+      if (loaded.offlineSec > 60) {
+        const summary = Sim.fastForward(world, loaded.offlineSec, rng);
+        if (UI.showSummary) UI.showSummary(world, summary);
+      }
+      world && startLoops(rng);
+      return;
     }
-    startLoops(rng);
-  } else if (window.Ceremony) {
-    // 新瓶子：先辦開瓶儀式（自訂或骰八隻祖代），選好才誕生世界
-    Ceremony.show(genes => {
+  }
+  if (window.Ceremony) {
+    // 新瓶子：先辦開瓶儀式（命名＋自訂或骰八隻祖代），選好才誕生世界
+    Ceremony.show((genes, name) => {
+      if (window.Bottles) Bottles.createFromCeremony(name);
       world = Sim.newWorld(rng, genes);
       if (Sim.save) Sim.save(world);
       startLoops(rng);
-    });
+    }, window.Bottles ? Bottles.defaultName() : '一號瓶');
   } else {
     world = Sim.newWorld(rng);
     startLoops(rng);

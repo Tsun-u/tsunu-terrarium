@@ -24,6 +24,11 @@ const Ceremony = {};
     display: flex; align-items: center; gap: 12px; justify-content: center;
     font-size: 30px; margin-bottom: 14px;
   }
+  #ceremony #cerName {
+    font-family: inherit; font-size: 19px; font-weight: bold; text-align: center;
+    width: 150px; background: rgba(255,255,255,.10); color: #eef;
+    border: 1px solid rgba(255,255,255,.25); border-radius: 12px; padding: 6px 10px;
+  }
   #ceremony .slots {
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
   }
@@ -59,7 +64,7 @@ const Ceremony = {};
   `;
   document.head.appendChild(style);
 
-  Ceremony.show = function (onDone) {
+  Ceremony.show = function (onDone, defaultName) {
     const anchors = [0, 1, 2, 3].map(i => Genetics.founderGenes(i).shape);
     // 每格狀態：形狀索引＋色相（彩度亮度鎖柔和值，怎麼選都不會刺眼）
     const slots = Array.from({ length: C.FOUNDER_COUNT }, (_, i) => ({
@@ -76,7 +81,9 @@ const Ceremony = {};
     root.id = 'ceremony';
     const sheet = document.createElement('div');
     sheet.className = 'sheet2';
-    sheet.innerHTML = '<div class="head2">🫙✨</div>';
+    // 表頭：🫙＋瓶子名字欄（預填預設名，不改也能直接開始）
+    sheet.innerHTML = `<div class="head2">🫙<input id="cerName" maxlength="12">✨</div>`;
+    sheet.querySelector('#cerName').value = defaultName || '';
     const grid = document.createElement('div');
     grid.className = 'slots';
 
@@ -188,8 +195,9 @@ const Ceremony = {};
     const start = document.createElement('button');
     start.id = 'cerStart'; start.textContent = '🌱';
     start.onclick = () => {
+      const name = sheet.querySelector('#cerName').value;
       root.remove();
-      onDone(slots.map(genesOf));
+      onDone(slots.map(genesOf), name);
     };
     actions.appendChild(diceAll);
     actions.appendChild(start);
