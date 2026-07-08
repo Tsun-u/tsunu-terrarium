@@ -1053,6 +1053,25 @@ const UI = {};
     applyAudioBtns();
     $('btnSound').onclick = () => { prefs.sfx = !prefs.sfx; savePrefs(); applyAudioBtns(); };
     $('btnMusic').onclick = () => { prefs.music = !prefs.music; savePrefs(); applyAudioBtns(); };
+    // ⏩ 時間倍速（1/2/5/10 循環；?fast 除錯模式時隱藏）
+    const SPEEDS = [1, 2, 5, 10];
+    const speedLabel = v => v === 1 ? '▶' : `⏩${v}`;
+    const applySpeed = () => {
+      C.TIME_SCALE = prefs.speed || 1;
+      $('btnSpeed').textContent = speedLabel(C.TIME_SCALE);
+      $('btnSpeed').style.color = C.TIME_SCALE > 1 ? '#ffd54f' : '#dde';   // 加速中亮金色
+    };
+    if (C._FAST_DEBUG) {
+      $('btnSpeed').style.display = 'none';
+    } else {
+      if (![1, 2, 5, 10].includes(prefs.speed)) prefs.speed = 1;
+      applySpeed();
+      $('btnSpeed').onclick = () => {
+        prefs.speed = SPEEDS[(SPEEDS.indexOf(prefs.speed) + 1) % SPEEDS.length];
+        savePrefs();
+        applySpeed();
+      };
+    }
     document.addEventListener('keydown', e => {
       if (e.key === 'Escape') { setMode(null); closePanel(); closeCard(); }
     });

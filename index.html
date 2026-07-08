@@ -40,6 +40,7 @@
   #btnTree  { left: 12px;  bottom: 12px; }
   #btnShop  { left: 66px;  bottom: 12px; filter: brightness(1.45) saturate(1.25); }
   #btnBottles { left: 120px; bottom: 12px; }
+  #btnSpeed { left: 174px; bottom: 12px; font-size: 15px; font-weight: bold; color: #dde; }
   #btnStars { right: 120px; bottom: 12px; }
   #btnMusic { right: 66px; bottom: 12px; }
   #btnSound { right: 12px; bottom: 12px; }
@@ -68,6 +69,7 @@
 <button class="corner-btn" id="btnTree"  title="族譜">🌳</button>
 <button class="corner-btn" id="btnShop"  title="商店">🛍️</button>
 <button class="corner-btn" id="btnBottles" title="瓶子">🫙</button>
+<button class="corner-btn" id="btnSpeed" title="速度">▶</button>
 <button class="corner-btn" id="btnStars" title="星空">⭐</button>
 <button class="corner-btn" id="btnMusic" title="音樂">🎵</button>
 <button class="corner-btn" id="btnSound" title="音效">🔊</button>
@@ -85,10 +87,15 @@
 <script>
 /* ---------- 開機流程 ---------- */
 
-// 測試用時間加速：?fast=N（N 倍速）。正式網址不帶參數 = 1。
+// 時間倍速：玩家偏好（⏩ 按鈕，1/2/5/10）先套用；?fast=N 除錯參數優先蓋過。
+// 需在 Sim.load 之前設定，離線折算才會跟著玩家選的節奏。
 (function readTimeScale() {
+  try {
+    const p = JSON.parse(localStorage.getItem('terrarium_prefs') || '{}');
+    if ([2, 5, 10].includes(p.speed)) C.TIME_SCALE = p.speed;
+  } catch (e) {}
   const n = +new URLSearchParams(location.search).get('fast');
-  if (n > 1) C.TIME_SCALE = Math.min(n, 86400);
+  if (n > 1) { C.TIME_SCALE = Math.min(n, 86400); C._FAST_DEBUG = true; }
 })();
 
 // 等比 contain：整個世界一眼可見、絕不變形；精確縮放讓邊留到最小
