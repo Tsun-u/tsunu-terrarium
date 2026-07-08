@@ -71,8 +71,13 @@ const Sim = {};
   }
 
   // ---- 行為機 ----
-  const PARTNER_ATTRACT_DIST = 60;
-  const PARTNER_ATTRACT_CHANCE = 0.5;
+  // 2026-07-09 調校：基準實測平均距離 102px/50px內佔22%，
+  // 實玩回饋「伴侶還是常分很開」→ 門檻收緊+拉力分級+近距逗留
+  const PARTNER_ATTRACT_DIST = 45;
+  const PARTNER_ATTRACT_CHANCE = 0.75;
+  const PARTNER_ATTRACT_FAR = 120;        // 分太開時拉力更強
+  const PARTNER_ATTRACT_CHANCE_FAR = 0.9;
+  const PARTNER_LINGER_WALK = 0.35;       // 在伴侶身邊時少走動、多一起發呆
   const PARTNER_ATTRACT_NOISE = 0.5; // ±0.5 rad
   const CHILD_FOLLOW_DIST = 40;
   const CHILD_FOLLOW_CHANCE = 0.5;
@@ -94,7 +99,15 @@ const Sim = {};
     const idleUpper = isElder ? 0.70 : 0.85; // elder 的 idle 30% 切一半給 gaze（15/15）
     const gazeUpper = 0.85;
 
-    if (r < 0.55) {
+    // 在伴侶身邊（≤ 門檻）時降低走動比例：常一起發呆、睡覺，減少又走散
+    const partner = c.partnerId != null ? findCreature(world, c.partnerId) : null;
+    const distSqToPartner = partner
+      ? (partner.x - c.x) * (partner.x - c.x) + (partner.y - c.y) * (partner.y - c.y)
+      : Infinity;
+    const nearMate = partner && distSqToPartner <= PARTNER_ATTRACT_DIST * PARTNER_ATTRACT_DIST;
+    const walkUpper = nearMate ? PARTNER_LINGER_WALK : 0.55;
+
+    if (r < walkUpper) {
       c.action = 'walk';
       let ang = rng() * Math.PI * 2;
       if (c.stage === 'child') {
@@ -106,18 +119,20 @@ const Sim = {};
             ang = Math.atan2(dy, dx) + (rng() * 2 - 1) * CHILD_FOLLOW_NOISE;
           }
         }
-      } else if (c.partnerId != null) {
-        // 組家庭後常一起行動：partnerId 有值且距離伴侶 > 60 時，五成機率改朝伴侶方向
-        // （帶 ±0.5 rad 噪聲）；距離近時維持純隨機，避免黏太緊不自然。
-        const partner = findCreature(world, c.partnerId);
-        if (partner) {
-          const dx = partner.x - c.x, dy = partner.y - c.y;
-          if (dx * dx + dy * dy > PARTNER_ATTRACT_DIST * PARTNER_ATTRACT_DIST && rng() < PARTNER_ATTRACT_CHANCE) {
+      } else if (partner) {
+        // 組家庭後常一起行動：距離 > 門檻時朝伴侶方向（帶 ±0.5 rad 噪聲）；
+        // 分得越開拉力越強（>120px 九成），近距離維持純隨機避免黏死。
+        const dx = partner.x - c.x, dy = partner.y - c.y;
+        if (distSqToPartner > PARTNER_ATTRACT_DIST * PARTNER_ATTRACT_DIST) {
+          const chance = distSqToPartner > PARTNER_ATTRACT_FAR * PARTNER_ATTRACT_FAR
+            ? PARTNER_ATTRACT_CHANCE_FAR : PARTNER_ATTRACT_CHANCE;
+          if (rng() < chance) {
             ang = Math.atan2(dy, dx) + (rng() * 2 - 1) * PARTNER_ATTRACT_NOISE;
           }
         }
       }
-      const speedMul = isElder ? 0.5 : 1;
+      let speedMul = isElder ? 0.5 : 1;
+      if (nearMate) speedMul *= 0.4;   // 伴侶身邊放慢腳步，位移縮小才不會一步走出相伴圈
       const spd = randRange(rng, C.WALK_SPEED_MIN, C.WALK_SPEED_MAX) * c.genes.speed * speedMul;
       c.vx = Math.cos(ang) * spd; c.vy = Math.sin(ang) * spd;
     } else if (r < idleUpper) {
@@ -128,9 +143,13 @@ const Sim = {};
     } else {
       c.action = 'sleep'; c.vx = 0; c.vy = 0;
     }
-    c.actionUntil = c.action === 'gaze'
-      ? t + 20 + Math.floor(rng() * 21) // gaze 持續稍長：20~40 tick
-      : t + 10 + Math.floor(rng() * 31); // 10~40 tick
+    if (c.action === 'gaze') {
+      c.actionUntil = t + 20 + Math.floor(rng() * 21);      // gaze 持續稍長：20~40 tick
+    } else if (c.action === 'walk' && nearMate) {
+      c.actionUntil = t + 6 + Math.floor(rng() * 9);        // 伴侶身邊只短程散步（6~14 tick），在附近繞不走丟
+    } else {
+      c.actionUntil = t + 10 + Math.floor(rng() * 31);      // 10~40 tick
+    }
   }
 
   function stepMovement(c) {
