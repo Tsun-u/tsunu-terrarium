@@ -146,19 +146,28 @@ const Audio2 = {};
       setTimeout(chordPad, 9000 + Math.random() * 5000);
     }
 
+    // 音階上第 idx 級的頻率（超過五聲就上八度）
+    const OCT = 2;
+    const noteAt = idx => PENTA[idx % 5] * OCT * (idx >= 5 ? 2 : 1);
+
     function melodyLoop() {
       if (musicOn) {
-        const night = isNightFn();
-        const oct = night ? 1 : 2;                            // 夜晚低八度、更沉靜
-        const f = PENTA[Math.floor(Math.random() * PENTA.length)] * oct *
-          (Math.random() < 0.25 ? 2 : 1);                     // 偶爾再高一個八度的亮點
-        pluck(f, night ? 0.32 : 0.42);
-        if (Math.random() < 0.35) {                           // 三成機率接一個短句
-          pluck(PENTA[Math.floor(Math.random() * PENTA.length)] * oct, 0.28, 0.38);
+        const r = Math.random();
+        if (r < 0.30) {
+          // 上行小琶音：do-mi-so 式的三連蹦跳，可愛擔當
+          const i0 = Math.floor(Math.random() * 4);
+          [i0, i0 + 2, i0 + 4].forEach((idx, k) =>
+            pluck(noteAt(idx), 0.42 - k * 0.04, k * 0.16));
+        } else if (r < 0.65) {
+          // 兩音短句：間距短、跳躍感
+          pluck(noteAt(Math.floor(Math.random() * 7)), 0.42);
+          pluck(noteAt(Math.floor(Math.random() * 7)), 0.34, 0.2);
+        } else {
+          // 單音（偶爾再高八度的小亮點）
+          pluck(noteAt(Math.floor(Math.random() * 5)) * (Math.random() < 0.3 ? 2 : 1), 0.42);
         }
       }
-      const night = isNightFn();
-      setTimeout(melodyLoop, (night ? 2400 : 1500) + Math.random() * (night ? 3200 : 1900));
+      setTimeout(melodyLoop, 900 + Math.random() * 1500);
     }
 
     setTimeout(chordPad, 1200);
