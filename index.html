@@ -113,14 +113,20 @@ fitCanvas();
 // 世界初始化（模組尚未實作時安靜跳過，骨架期可先開頁驗版面）
 let world = null;
 function startLoops(rng) {
-  // 1 現實秒 = TIME_SCALE 個 tick
+  // 100ms 節拍器＋累加器：把 TIME_SCALE 個 tick 平均鋪滿整秒，
+  // 加速時移動才是連續滑行而不是「一秒跳一大步」的頓挫
+  let acc = 0;
   setInterval(() => {
     if (!world) return;
+    acc += C.TIME_SCALE / 10;
+    const n = Math.floor(acc);
+    if (!n) return;
+    acc -= n;
     const events = [];
-    for (let i = 0; i < C.TIME_SCALE; i++) events.push(...Sim.tick(world, rng));
+    for (let i = 0; i < n; i++) events.push(...Sim.tick(world, rng));
     if (Render.onEvents) Render.onEvents(world, events);
     if (UI.onEvents) UI.onEvents(world, events);
-  }, 1000);
+  }, 100);
   setInterval(() => {
     if (Sim.save && world) {
       Sim.save(world);
