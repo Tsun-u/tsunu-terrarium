@@ -85,14 +85,21 @@
   if (n > 1) C.TIME_SCALE = Math.min(n, 86400);
 })();
 
-// 畫布整數倍放大（邏輯尺寸由 contract 決定）
+// 世界寬度隨螢幕比例決定（高度固定），畫面幾乎無邊貼合視窗。
+// 場景/星空/事件座標皆為比例式；跨裝置開檔時座標會夾回範圍，安全。
+(function fitWorldAspect() {
+  const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+  C.WORLD_W = Math.round(Math.min(480, Math.max(300, C.WORLD_H * aspect)));
+})();
+
+// 畫布貼合視窗（保持比例、幾乎無邊；pixelated 下非整數倍縮放觀感可接受）
 function fitCanvas() {
   const cv = document.getElementById('world');
   if (cv.width !== C.WORLD_W) { cv.width = C.WORLD_W; cv.height = C.WORLD_H; }
-  const scale = Math.max(1, Math.floor(Math.min(
-    window.innerWidth / C.WORLD_W, window.innerHeight / C.WORLD_H)));
-  cv.style.width = C.WORLD_W * scale + 'px';
-  cv.style.height = C.WORLD_H * scale + 'px';
+  const scale = Math.max(1, Math.min(
+    window.innerWidth / C.WORLD_W, window.innerHeight / C.WORLD_H));
+  cv.style.width = Math.floor(C.WORLD_W * scale) + 'px';
+  cv.style.height = Math.floor(C.WORLD_H * scale) + 'px';
 }
 window.addEventListener('resize', fitCanvas);
 fitCanvas();
