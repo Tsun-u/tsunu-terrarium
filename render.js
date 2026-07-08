@@ -374,6 +374,23 @@ const Render = {};
         x: rnd() * C.WORLD_W, y: -rnd() * C.WORLD_H * 0.75,
         spd: 6 + rnd() * 5, drift: (rnd() - 0.5) * 4, ph: rnd() * 6.28 });
       ambients.push({ kind, start: now, dur: 15000, data: { petals } });
+    } else if (kind === 'chase') {
+      // 單隻蝴蝶低飛掠過草地，回傳位置控制柄讓 ui 引導一隻孩子追著跑
+      const a = { kind, start: now, dur: 13000, data: {
+        y0: C.SKY_H + 30 + rnd() * (C.WORLD_H - C.SKY_H - 60),
+        amp: 8 + rnd() * 6, ph: rnd() * 6.28, spd: 13 + rnd() * 5,
+        fromLeft: rnd() < 0.5, hue: [340, 45, 200, 280][Math.floor(rnd() * 4)] } };
+      ambients.push(a);
+      return {
+        getPos: () => {
+          const bt = (performance.now() - a.start) / 1000;
+          const x = a.data.fromLeft ? bt * a.data.spd - 6 : C.WORLD_W + 6 - bt * a.data.spd;
+          return { x, y: a.data.y0 + Math.sin(bt * 2 + a.data.ph) * a.data.amp,
+            done: performance.now() - a.start >= a.dur };
+        },
+      };
+    } else if (kind === 'reflect') {
+      ambients.push({ kind, start: now, dur: 11000, data: { seed: Math.floor(rnd() * 100) } });
     }
     // 'nap' 由 ui 直接改 action，不需要動畫項
   };
@@ -441,6 +458,35 @@ const Render = {};
           ctx.fillStyle = `rgba(255,196,214,${fade * 0.9})`;
           ctx.fillRect(Math.round(px), Math.round(py), 1, 1);
         }
+      } else if (a.kind === 'chase') {
+        const bt = (tMs - a.start) / 1000;
+        const x = a.data.fromLeft ? bt * a.data.spd - 6 : C.WORLD_W + 6 - bt * a.data.spd;
+        if (x >= -8 && x <= C.WORLD_W + 8) {
+          const y = a.data.y0 + Math.sin(bt * 2 + a.data.ph) * a.data.amp;
+          const wing = Math.floor(tMs / 90) % 2 === 0;
+          ctx.fillStyle = `hsla(${a.data.hue}, 80%, 75%, ${fade})`;
+          if (wing) { ctx.fillRect(x - 2, y - 1, 2, 2); ctx.fillRect(x + 1, y - 1, 2, 2); }
+          else { ctx.fillRect(x - 1, y - 2, 1, 2); ctx.fillRect(x + 1, y - 2, 1, 2); }
+          ctx.fillStyle = `rgba(60,50,40,${fade})`; ctx.fillRect(x, y - 1, 1, 2);
+        }
+      } else if (a.kind === 'reflect') {
+        // 池塘倒影：水面碎光閃爍＋一圈圈慢速漣漪
+        const px = C.WORLD_W * 0.79, py = C.WORLD_H * 0.8;
+        const prx = scenePondBig ? 40 : 26, pry = scenePondBig ? 22 : 14;
+        for (let k = 0; k < 8; k++) {
+          const ang = (a.data.seed + k * 47) % 360 / 57.3;
+          const rr = 0.25 + ((a.data.seed * 7 + k * 31) % 60) / 100;
+          const sx = px + Math.cos(ang) * prx * rr;
+          const sy = py + Math.sin(ang) * pry * rr;
+          const tw = 0.5 + 0.5 * Math.sin(tMs / 260 + k * 2.1);
+          ctx.fillStyle = `rgba(230,250,255,${fade * tw * 0.8})`;
+          ctx.fillRect(Math.round(sx), Math.round(sy), 1, 1);
+        }
+        const rp = (tMs - a.start) % 3000 / 3000;
+        ctx.strokeStyle = `rgba(220,245,255,${fade * (1 - rp) * 0.5})`;
+        ctx.beginPath();
+        ctx.ellipse(px, py, prx * 0.3 + prx * 0.6 * rp, pry * 0.3 + pry * 0.6 * rp, 0, 0, 6.29);
+        ctx.stroke();
       }
     }
   }

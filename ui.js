@@ -143,6 +143,12 @@ const UI = {};
   #summaryCard .row .tag { font-size: 26px; }
   #summaryCard canvas { image-rendering: pixelated; }
   #summaryCard .hearts { color: #ff9db4; font-size: 24px; font-weight: bold; }
+  /* 化星者在摘要卡上緩緩飄向星空 */
+  #summaryCard .ascend { display: inline-block; animation: sumAscend 2.6s ease-in-out infinite alternate; }
+  @keyframes sumAscend {
+    from { transform: translateY(5px); opacity: 1; }
+    to   { transform: translateY(-9px); opacity: .45; }
+  }
   `;
   document.head.appendChild(style);
 
@@ -642,14 +648,33 @@ const UI = {};
     W = world;
     const card = document.createElement('div');
     card.id = 'summaryCard';
-    const section = (tag, list, stage) => {
+    const section = (tag, list, stage, mode) => {
       if (!list || !list.length) return;
       const row = document.createElement('div');
       row.className = 'row';
       const t = document.createElement('div'); t.className = 'tag'; t.textContent = tag;
       row.appendChild(t);
-      list.slice(0, 10).forEach(cr => row.appendChild(portrait({ ...cr, stage }, 3)));
-      if (list.length > 10) {
+      list.slice(0, 8).forEach(cr => {
+        if (mode === 'reveal') {
+          // 揭曉前後對比：小圓點 → 成形
+          const pair = document.createElement('span');
+          pair.style.cssText = 'display:inline-flex;align-items:center;gap:4px;';
+          pair.appendChild(portrait({ ...cr, stage: 'child' }, 3));
+          const arrow = document.createElement('span');
+          arrow.textContent = '→'; arrow.style.cssText = 'color:#9ab;font-size:16px;';
+          pair.appendChild(arrow);
+          pair.appendChild(portrait({ ...cr, stage: 'adult' }, 3));
+          row.appendChild(pair);
+        } else if (mode === 'ascend') {
+          const wrap = document.createElement('span');
+          wrap.className = 'ascend';
+          wrap.appendChild(portrait({ ...cr, stage }, 3));
+          row.appendChild(wrap);
+        } else {
+          row.appendChild(portrait({ ...cr, stage }, 3));
+        }
+      });
+      if (list.length > 8) {
         const more = document.createElement('div');
         more.style.cssText = 'color:#889;font-size:18px;';
         more.textContent = '…';
@@ -658,8 +683,8 @@ const UI = {};
       card.appendChild(row);
     };
     section('🐣', summary.born, 'child');
-    section('🌼', summary.matured, 'adult');
-    section('⭐', summary.starred, 'adult');
+    section('🌼', summary.matured, 'adult', 'reveal');
+    section('⭐', summary.starred, 'adult', 'ascend');
     if (summary.hearts > 0) {
       const h = document.createElement('div');
       h.className = 'hearts'; h.textContent = `❤ +${summary.hearts}`;
@@ -710,6 +735,19 @@ const UI = {};
     } else if (m.startsWith('move:')) {
       Render.setHighlight([]);
       showBanner('✋ 👇');
+      // 移除鈕（買過的裝飾之後可 0 愛心購回——商店就是倉庫）
+      if (typeof Sim.removeDecor === 'function') {
+        const banner = document.getElementById('modeBanner');
+        const bin = document.createElement('button');
+        bin.className = 'cancel'; bin.textContent = '🗑️';
+        bin.onclick = ev => {
+          ev.stopPropagation();
+          Sim.removeDecor(W, +m.slice(5));
+          if (Sim.save) { Sim.save(W); if (window.Bottles?.hasMeta?.()) Bottles.touchSaved(); }
+          setMode(null);
+        };
+        banner.insertBefore(bin, banner.lastChild);
+      }
     } else {
       Render.setHighlight([]);
       hideBanner();
@@ -823,8 +861,11 @@ const UI = {};
     // 裝飾列（縮圖所見即所得）
     const row2 = document.createElement('div');
     row2.className = 'gen-row';
-    for (const [kind, price] of Object.entries(C.SHOP.decor)) {
-      const owned = kind === 'pond' && (W.decor || []).some(d => d.kind === 'pond');
+    for (const [kind, basePrice] of Object.entries(C.SHOP.decor)) {
+      const placed = kind === 'pond' && (W.decor || []).some(d => d.kind === 'pond');
+      // 買過的裝飾 0 愛心購回（移除後不心疼；池塘一次性除外）
+      const rebuy = kind !== 'pond' && (W.ownedDecor || []).includes(kind);
+      const price = rebuy ? 0 : basePrice;
       let icon;
       if (kind === 'pond') icon = '<div style="font-size:30px;">🌊</div>';
       else {
@@ -834,7 +875,7 @@ const UI = {};
         const c2 = icon.getContext('2d'); c2.imageSmoothingEnabled = false;
         c2.drawImage(sp, 0, 0, icon.width, icon.height);
       }
-      row2.appendChild(mkItem(icon, price, !owned && W.hearts >= price,
+      row2.appendChild(mkItem(icon, price, !placed && W.hearts >= price,
         () => { closePanel(); setMode('place:' + kind); }));
     }
     sheet.appendChild(row2);
@@ -926,8 +967,8 @@ const UI = {};
     if (!W || document.hidden) return;
     const night = Render.isNight(W);
     const pool = night
-      ? ['meteor', 'firefly', 'gift', 'nap', 'petals']
-      : ['butterfly', 'rainbow', 'gift', 'nap', 'petals'];
+      ? ['meteor', 'firefly', 'gift', 'nap', 'petals', 'reflect']
+      : ['butterfly', 'rainbow', 'gift', 'nap', 'petals', 'chase', 'reflect'];
     let kind = pool[Math.floor(Math.random() * pool.length)];
     if (kind === 'nap') {
       // 找一對已經靠近的孩子一起打盹；找不到就換蝴蝶/螢火蟲
@@ -941,7 +982,25 @@ const UI = {};
           c.actionUntil = W.tick + 40 + Math.floor(Math.random() * 30); });
       } else kind = night ? 'firefly' : 'butterfly';
     }
-    if (kind !== 'nap') Render.playAmbient(kind, W);
+    if (kind === 'chase') {
+      // 追蝴蝶：蝴蝶低飛掠過，隨機一隻孩子開心地追著跑
+      const handle = Render.playAmbient('chase', W);
+      const alive = W.creatures.filter(c => c.stage !== 'egg' && c.stage !== 'star');
+      const chaser = alive[Math.floor(Math.random() * alive.length)];
+      if (chaser && handle) {
+        const iv = setInterval(() => {
+          const p = handle.getPos();
+          if (p.done) { clearInterval(iv); return; }
+          if (p.x > 4 && p.x < C.WORLD_W - 4) {
+            const d = Math.hypot(chaser.x - p.x, chaser.y - p.y) || 1;
+            chaser.action = 'walk';
+            chaser.actionUntil = W.tick + 4;
+            chaser.vx = (p.x - chaser.x) / d * C.WALK_SPEED_MAX * 0.9;
+            chaser.vy = (p.y - chaser.y) / d * C.WALK_SPEED_MAX * 0.9;
+          }
+        }, 900);
+      }
+    } else if (kind !== 'nap') Render.playAmbient(kind, W);
     if (window.Audio2) Audio2.eventSound(kind);
     W.hearts += 2;
     updateHearts();
