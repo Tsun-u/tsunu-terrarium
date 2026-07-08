@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>genetics 視覺抽查</title>
+<style>
+  body { background: #1a1e2a; color: #cfd6e4; font-family: "Microsoft JhengHei", sans-serif; padding: 16px; }
+  h2 { font-size: 14px; font-weight: normal; color: #8b93a8; margin: 18px 0 8px; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .cell { background: #10131c; border-radius: 4px; padding: 4px; text-align: center; }
+  canvas { image-rendering: pixelated; display: block; }
+  .cell span { font-size: 10px; color: #6f7893; }
+</style>
+</head>
+<body>
+<h2>founder 0-7（四形狀 × 兩色系鋪開）</h2>
+<div class="row" id="founders"></div>
+<h2>隨機二代 × 20（founder 兩兩配對繁衍）</h2>
+<div class="row" id="offspring"></div>
+<h2>生命階段（founder 3：egg / child / adult / elder）</h2>
+<div class="row" id="stages"></div>
+<script src="../contract.js"></script>
+<script src="../genetics.js"></script>
+<script>
+const SCALE = 8;
+function drawSprite(container, sprite, label) {
+  const cell = document.createElement('div');
+  cell.className = 'cell';
+  const cv = document.createElement('canvas');
+  cv.width = sprite.w * SCALE;
+  cv.height = sprite.h * SCALE;
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  const off = document.createElement('canvas');
+  off.width = sprite.w; off.height = sprite.h;
+  off.getContext('2d').putImageData(new ImageData(sprite.pixels, sprite.w, sprite.h), 0, 0);
+  ctx.drawImage(off, 0, 0, sprite.w * SCALE, sprite.h * SCALE);
+  cell.appendChild(cv);
+  const sp = document.createElement('span');
+  sp.textContent = label;
+  cell.appendChild(sp);
+  container.appendChild(cell);
+}
+
+const founderDiv = document.getElementById('founders');
+const founders = [];
+for (let i = 0; i < 8; i++) {
+  const g = Genetics.founderGenes(i);
+  founders.push(g);
+  drawSprite(founderDiv, Genetics.rasterize(g, 'adult'), `#${i} m=${g.shape.m} h=${g.color.h}`);
+}
+
+const offDiv = document.getElementById('offspring');
+const rng = rngFactory(20260708);
+for (let i = 0; i < 20; i++) {
+  const a = founders[Math.floor(rng() * 8)];
+  const b = founders[Math.floor(rng() * 8)];
+  const kid = Genetics.breed(a, b, rng);
+  drawSprite(offDiv, Genetics.rasterize(kid, 'adult'), `m=${kid.shape.m} h=${Math.round(kid.color.h)}${kid.glow ? ' ✨' : ''}`);
+}
+
+const stageDiv = document.getElementById('stages');
+const g3 = founders[3];
+['egg', 'child', 'adult', 'elder'].forEach((stage) => {
+  drawSprite(stageDiv, Genetics.rasterize(g3, stage), stage);
+});
+</script>
+</body>
+</html>

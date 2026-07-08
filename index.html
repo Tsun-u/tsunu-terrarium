@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>🌱 像素生態瓶</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #1a1e2a;
+    color: #e8ecf4;
+    line-height: 1.5;
+    font-family: "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif;
+    touch-action: manipulation;
+  }
+  /* 鍵盤操作者的焦點指示（a11y） */
+  button:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(255, 213, 79, .85);
+  }
+  /* 世界畫布：整數倍放大置中，維持點陣硬邊 */
+  #world {
+    position: absolute; left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    image-rendering: pixelated;
+    background: #000;
+  }
+  /* 角落 icon 按鈕（半透明、無文字） */
+  .corner-btn {
+    position: fixed; z-index: 50;
+    width: 46px; height: 46px; border: none; border-radius: 14px;
+    background: rgba(255,255,255,.12); font-size: 22px; cursor: pointer;
+    backdrop-filter: blur(2px);
+    transition: background .15s, transform .12s;
+  }
+  .corner-btn:active { transform: scale(.92); background: rgba(255,255,255,.25); }
+  #btnTree  { left: 12px;  bottom: 12px; }
+  #btnShop  { left: 66px;  bottom: 12px; filter: brightness(1.45) saturate(1.25); }
+  #btnStars { right: 66px; bottom: 12px; }
+  #btnSound { right: 12px; bottom: 12px; }
+  /* 愛心計數（右上，唯一常駐數字） */
+  #hearts {
+    position: fixed; right: 14px; top: 12px; z-index: 50;
+    padding: 6px 14px; border-radius: 14px;
+    background: rgba(255,255,255,.12); backdrop-filter: blur(2px);
+    color: #ffd3dd; font-size: 18px; font-weight: bold;
+  }
+  /* UI 面板的掛載點（ui.js 動態填內容） */
+  #uiLayer { position: fixed; inset: 0; z-index: 60; pointer-events: none; }
+  #uiLayer > * { pointer-events: auto; }
+</style>
+</head>
+<body>
+<canvas id="world"></canvas>
+<div id="hearts">❤ <span id="heartNum">0</span></div>
+<button class="corner-btn" id="btnTree"  title="族譜">🌳</button>
+<button class="corner-btn" id="btnShop"  title="商店">🛍️</button>
+<button class="corner-btn" id="btnStars" title="星空">⭐</button>
+<button class="corner-btn" id="btnSound" title="音效">🔊</button>
+<div id="uiLayer"></div>
+
+<script src="contract.js"></script>
+<script src="genetics.js"></script>
+<script src="sim.js"></script>
+<script src="render.js"></script>
+<script src="ui.js"></script>
+<script src="audio.js"></script>
+<script src="ceremony.js"></script>
+<script>
+/* ---------- 開機流程 ---------- */
+
+// 測試用時間加速：?fast=N（N 倍速）。正式網址不帶參數 = 1。
+(function readTimeScale() {
+  const n = +new URLSearchParams(location.search).get('fast');
+  if (n > 1) C.TIME_SCALE = Math.min(n, 86400);
+})();
+
+// 畫布整數倍放大（邏輯尺寸由 contract 決定）
+function fitCanvas() {
+  const cv = document.getElementById('world');
+  if (cv.width !== C.WORLD_W) { cv.width = C.WORLD_W; cv.height = C.WORLD_H; }
+  const scale = Math.max(1, Math.floor(Math.min(
+    window.innerWidth / C.WORLD_W, window.innerHeight / C.WORLD_H)));
+  cv.style.width = C.WORLD_W * scale + 'px';
+  cv.style.height = C.WORLD_H * scale + 'px';
+}
+window.addEventListener('resize', fitCanvas);
+fitCanvas();
+
+// 世界初始化（模組尚未實作時安靜跳過，骨架期可先開頁驗版面）
+let world = null;
+function startLoops(rng) {
+  // 1 現實秒 = TIME_SCALE 個 tick
+  setInterval(() => {
+    if (!world) return;
+    const events = [];
+    for (let i = 0; i < C.TIME_SCALE; i++) events.push(...Sim.tick(world, rng));
+    if (Render.onEvents) Render.onEvents(world, events);
+    if (UI.onEvents) UI.onEvents(world, events);
+  }, 1000);
+  setInterval(() => { if (Sim.save && world) Sim.save(world); }, 30000);
+  if (UI.init) UI.init(world);
+}
+function boot() {
+  if (typeof Sim.newWorld !== 'function') {
+    console.log('[terrarium] 邏輯模組尚未就緒（骨架模式）');
+    return;
+  }
+  const rng = rngFactory(Date.now() >>> 0);
+  const loaded = Sim.load ? Sim.load() : null;
+  if (loaded) {
+    world = loaded.world;
+    // 地圖放大後的座標防護：把舊存檔的個體與裝飾夾回地面活動範圍
+    const clampY = y => Math.min(C.WORLD_H - 8, Math.max(C.SKY_H + 8, y));
+    const clampX = x => Math.min(C.WORLD_W - 8, Math.max(8, x));
+    world.creatures.forEach(c => { c.x = clampX(c.x); c.y = clampY(c.y); });
+    (world.decor || []).forEach(d => { if (d.kind !== 'pond') { d.x = clampX(d.x); d.y = clampY(d.y); } });
+    if (loaded.offlineSec > 60) {
+      const summary = Sim.fastForward(world, loaded.offlineSec, rng);
+      if (UI.showSummary) UI.showSummary(world, summary);
+    }
+    startLoops(rng);
+  } else if (window.Ceremony) {
+    // 新瓶子：先辦開瓶儀式（自訂或骰八隻祖代），選好才誕生世界
+    Ceremony.show(genes => {
+      world = Sim.newWorld(rng, genes);
+      if (Sim.save) Sim.save(world);
+      startLoops(rng);
+    });
+  } else {
+    world = Sim.newWorld(rng);
+    startLoops(rng);
+  }
+}
+function frame(t) {
+  if (world && Render.draw) Render.draw(world, t);
+  requestAnimationFrame(frame);
+}
+boot();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
