@@ -1267,12 +1267,9 @@ const UI = {};
     document.addEventListener('keydown', e => {
       if (e.key === 'Escape') { setMode(null); closePanel(); closeCard(); }
     });
-    // 環境音在第一次手勢後啟動（瀏覽器 autoplay 政策）
-    const startAudio = () => {
-      if (window.Audio2) Audio2.start(() => W && Render.isNight(W));
-      document.removeEventListener('pointerdown', startAudio);
-    };
-    document.addEventListener('pointerdown', startAudio);
+    // 音訊開頁即啟動：autoplay 放行的環境直接出聲，
+    // 被擋的環境由 Audio2 內部的「任何互動即解鎖」接手
+    if (window.Audio2) Audio2.start(() => W && Render.isNight(W));
     scheduleAmbient();
     playtimeLoop();
     fishLoop();

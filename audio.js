@@ -50,6 +50,7 @@ const Audio2 = {};
 
   /* ---------- 小音符工具 ---------- */
   function tone(freq, dur, type, vol, when = 0, glideTo = null) {
+    if (ac.state !== 'running') return;   // 解鎖前不排程，避免解鎖瞬間積壓爆音
     const t = ac.currentTime + when;
     const o = ac.createOscillator(), g = ac.createGain();
     o.type = type; o.frequency.setValueAtTime(freq, t);
@@ -160,7 +161,7 @@ const Audio2 = {};
     }
 
     function pluck(freq, vol, when = 0, decay = 2.6) {
-      if (!musicOn) return;
+      if (!musicOn || ac.state !== 'running') return;
       const t = ac.currentTime + when;
       const o = ac.createOscillator();
       o.type = 'sine';
@@ -180,6 +181,7 @@ const Audio2 = {};
 
     // 和弦墊：跟著進行走（root 低八度、其餘中音域，triangle 緩起緩收）
     function padChord(name, durSec) {
+      if (ac.state !== 'running') return;
       const pcs = CHORD_PCS[name] || [0, 4, 7];
       const t = ac.currentTime;
       const freqs = [SEMI3(pcs[0]), SEMI3(pcs[1]), SEMI3(pcs[2])];
@@ -239,7 +241,7 @@ const Audio2 = {};
     // 走完數輪以終止式收尾 → 留一段只有風聲的呼吸，再開下一首
     let piece = null;
     function musicStep() {
-      if (!musicOn) { setTimeout(musicStep, 2000); return; }
+      if (!musicOn || ac.state !== 'running') { setTimeout(musicStep, 2000); return; }
       if (!piece) {
         const day = !isNightFn();
         const pool = day ? PROG_DAY : PROG_NIGHT;
@@ -294,13 +296,26 @@ const Audio2 = {};
 
   /* ---------- 對外介面 ---------- */
 
-  // 在第一次使用者手勢後呼叫（autoplay 政策）
+  // 開頁即呼叫：autoplay 放行的環境直接出聲；被擋的環境掛上
+  // 「任何互動即解鎖」監聽＋低頻重試，第一絲手勢就開始播。
+  // （排程端都有 state 防護，解鎖前不積壓音符）
   Audio2.start = function (nightFn) {
     if (started) return;
     if (!ensureCtx()) return;
     started = true;
     isNightFn = nightFn || isNightFn;
-    if (ac.state === 'suspended') ac.resume();
+    if (ac.state !== 'running') {
+      ac.resume().catch(() => {});
+      const evs = ['pointerdown', 'keydown', 'touchstart'];
+      const onGesture = () => ac.resume().catch(() => {});
+      evs.forEach(ev => document.addEventListener(ev, onGesture, { passive: true }));
+      const iv = setInterval(() => {
+        if (ac.state === 'running') {
+          clearInterval(iv);
+          evs.forEach(ev => document.removeEventListener(ev, onGesture));
+        } else ac.resume().catch(() => {});
+      }, 2500);
+    }
     startWind();
     setTimeout(natureLoop, 3000);
     startMusicBox();
