@@ -283,6 +283,35 @@ const Render = {};
   let lanternPrank = null;   // { x, y, until }
   Render.setLanternPrank = p => { lanternPrank = p; };
 
+  // 池塘潑水仗：ui 設定後，兩點之間交替飛水珠
+  let splash = null;   // { ax, ay, bx, by, until }
+  Render.setSplash = s => { splash = s; };
+
+  function drawSplash(tMs) {
+    if (!splash) return;
+    if (tMs > splash.until) { splash = null; return; }
+    const period = 640;
+    const dirAB = Math.floor(tMs / period) % 2 === 0;   // 你來我往
+    const p = (tMs % period) / period;
+    const [x1, y1, x2, y2] = dirAB
+      ? [splash.ax, splash.ay, splash.bx, splash.by]
+      : [splash.bx, splash.by, splash.ax, splash.ay];
+    for (let k = 0; k < 4; k++) {
+      const pp = p - k * 0.1;
+      if (pp < 0 || pp > 1) continue;
+      const wx = x1 + (x2 - x1) * pp + (k - 1.5) * 1.2;
+      const wy = y1 - 4 - Math.sin(Math.PI * pp) * (5 + k);
+      ctx.fillStyle = k % 2 ? 'rgba(190,230,255,0.9)' : 'rgba(240,252,255,0.9)';
+      ctx.fillRect(Math.round(wx), Math.round(wy), 1, 1);
+    }
+    if (p > 0.85) {   // 潑到了！頭上濺小水花
+      ctx.fillStyle = 'rgba(240,252,255,0.85)';
+      ctx.fillRect(Math.round(x2), Math.round(y2 - 9), 1, 1);
+      ctx.fillRect(Math.round(x2 - 2), Math.round(y2 - 7), 1, 1);
+      ctx.fillRect(Math.round(x2 + 2), Math.round(y2 - 7), 1, 1);
+    }
+  }
+
   // 石燈夜光：畫在夜幕之上才不會被壓暗（同星星層）
   function drawLanternGlows(world, b) {
     if (b >= 0.45) return;
@@ -630,6 +659,7 @@ const Render = {};
 
     // 療癒事件與選取光圈（夜幕之上，夜間事件才明亮）
     drawAmbients(world, tMs);
+    drawSplash(tMs);
     drawHighlights(world, tMs);
 
     // 事件動畫與放置預覽（最上層）

@@ -1042,18 +1042,22 @@ const UI = {};
 
   /* ---------- 佈景互動：幼體盪鞦韆（純表現層，同追蝴蝶的引導手法） ---------- */
 
+  const busyIds = new Set();   // 正在玩佈景的孩子（避免一隻同時軋三個劇本）
+
   let riding = null;   // 一次只有一隻在玩
   function tryPlaytime() {
     if (!W || document.hidden || riding) return;
     const swing = (W.decor || []).find(d => d.kind === 'swing');
-    const kids = W.creatures.filter(c => c.stage === 'child');
+    const kids = W.creatures.filter(c => c.stage === 'child' && !busyIds.has(c.id));
     if (!swing || !kids.length || Math.random() < 0.35) return;
     const kid = kids[Math.floor(Math.random() * kids.length)];
     riding = { id: kid.id, phase: 'walk', until: Date.now() + 30000 };   // 30 秒走不到就放棄
+    busyIds.add(kid.id);
     const iv = setInterval(() => {
       const c = W.creatures.find(x => x.id === riding?.id);
       const sw = (W.decor || []).find(d => d.kind === 'swing');
       if (!c || !sw || c.stage !== 'child' || Date.now() > riding.until) {
+        busyIds.delete(kid.id);
         riding = null; clearInterval(iv); return;                        // 鞦韆被收走/長大/超時 → 收工
       }
       if (riding.phase === 'walk') {
@@ -1085,16 +1089,17 @@ const UI = {};
   function tryPrank() {
     if (!W || document.hidden || pranking || !Render.isNight(W)) return;
     const lantern = (W.decor || []).find(d => d.kind === 'lantern');
-    const kids = W.creatures.filter(c => c.stage === 'child' && c.id !== riding?.id);
+    const kids = W.creatures.filter(c => c.stage === 'child' && !busyIds.has(c.id));
     if (!lantern || !kids.length || Math.random() < 0.4) return;
     const kid = kids[Math.floor(Math.random() * kids.length)];
     pranking = true;
+    busyIds.add(kid.id);
     const state = { phase: 'walk', until: Date.now() + 25000 };
     const iv = setInterval(() => {
       const c = W.creatures.find(x => x.id === kid.id);
       const lt = (W.decor || []).find(d => d.kind === 'lantern');
       if (!c || !lt || c.stage !== 'child' || Date.now() > state.until) {
-        pranking = false; clearInterval(iv);
+        pranking = false; busyIds.delete(kid.id); clearInterval(iv);
         Render.setLanternPrank(null);
         return;
       }
@@ -1121,7 +1126,7 @@ const UI = {};
           c.action = 'walk'; c.actionUntil = W.tick + 6;
           c.vx = Math.cos(ang) * C.RUSH_SPEED * 0.8;
           c.vy = Math.abs(Math.sin(ang)) * C.RUSH_SPEED * 0.8 * (c.y > (C.SKY_H + C.WORLD_H) / 2 ? -1 : 1);
-          pranking = false; clearInterval(iv);
+          pranking = false; busyIds.delete(kid.id); clearInterval(iv);
           Render.setLanternPrank(null);
         }
       }
@@ -1129,6 +1134,59 @@ const UI = {};
   }
   function prankLoop() {
     setTimeout(() => { tryPrank(); prankLoop(); }, 40000 + Math.random() * 50000);
+  }
+
+  /* ---------- 白天池塘潑水仗（兩隻在池邊互潑，佈景互動三部曲之三） ---------- */
+
+  let splashing = false;
+  function trySplash() {
+    if (!W || document.hidden || splashing || !Render.isDay(W)) return;
+    const free = W.creatures.filter(c =>
+      c.stage !== 'egg' && c.stage !== 'star' && !busyIds.has(c.id));
+    if (free.length < 2 || Math.random() < 0.35) return;
+    const pick = free.sort(() => Math.random() - 0.5).slice(0, 2);
+    const [a, b] = pick;
+    const px = C.WORLD_W * 0.79, py = C.WORLD_H * 0.8;
+    const rx = (W.decor || []).some(d => d.kind === 'pond') ? 40 : 26;
+    const spotA = { x: px - rx - 3, y: py - 3 };    // 池塘左緣兩個位置，面對面
+    const spotB = { x: px - rx + 11, y: py + 4 };
+    splashing = true; busyIds.add(a.id); busyIds.add(b.id);
+    const st = { phase: 'walk', until: Date.now() + 30000 };
+    const iv = setInterval(() => {
+      const ca = W.creatures.find(x => x.id === a.id);
+      const cb = W.creatures.find(x => x.id === b.id);
+      if (!ca || !cb || Date.now() > st.until) {
+        splashing = false; busyIds.delete(a.id); busyIds.delete(b.id);
+        Render.setSplash(null); clearInterval(iv); return;
+      }
+      if (st.phase === 'walk') {
+        let both = true;
+        [[ca, spotA], [cb, spotB]].forEach(([c, s]) => {
+          const d = Math.hypot(c.x - s.x, c.y - s.y) || 1;
+          if (d >= 4) {
+            both = false;
+            c.action = 'walk'; c.actionUntil = W.tick + 4;
+            c.vx = (s.x - c.x) / d * C.WALK_SPEED_MAX * 0.8;
+            c.vy = (s.y - c.y) / d * C.WALK_SPEED_MAX * 0.8;
+          }
+        });
+        if (both) {
+          st.phase = 'splash';
+          st.until = Date.now() + 8000 + Math.random() * 5000;   // 潑 8~13 秒
+          Render.setSplash({ ax: spotA.x, ay: spotA.y, bx: spotB.x, by: spotB.y, until: st.until });
+        }
+      } else {
+        // 互潑中：兩隻在原地小晃（相位錯開＝你來我往）
+        [[ca, spotA, 0], [cb, spotB, 1]].forEach(([c, s, ph]) => {
+          c.action = 'idle'; c.actionUntil = W.tick + 4; c.vx = 0; c.vy = 0;
+          c.x = s.x + (Math.floor(performance.now() / 320 + ph) % 2 ? 0.9 : -0.9);
+          c.y = s.y;
+        });
+      }
+    }, 250);
+  }
+  function splashLoop() {
+    setTimeout(() => { trySplash(); splashLoop(); }, 50000 + Math.random() * 60000);
   }
 
   /* ---------- 池塘跳魚（小驚喜，不進事件排程、無 ❤） ---------- */
@@ -1219,6 +1277,7 @@ const UI = {};
     playtimeLoop();
     fishLoop();
     prankLoop();
+    splashLoop();
   };
 })();
 
