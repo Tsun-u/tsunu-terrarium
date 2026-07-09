@@ -105,14 +105,56 @@ const Audio2 = {};
     musicBus.connect(musicOut);
     musicBus.connect(delay);
 
-    const PENTA = [261.63, 293.66, 329.63, 392.0, 440.0];   // C D E G A
-    const CHORDS = [
-      [130.81, 196.0, 329.63],    // C:  C3 G3 E4
-      [110.0, 164.81, 261.63],    // Am: A2 E3 C4
-      [87.31, 174.61, 220.0],     // F:  F2 F3 A3
-      [98.0, 146.83, 329.63],     // Gsus: G2 D3 E4
+    /* ---- 作曲規則 v2 ----
+       概念參考 AMIX「EASY 8BIT EDITOR」的公開作曲規則（和弦感知音階、
+       動機移調反覆、終止式），實作為本專案原創。三層規則：
+       1) 和弦進行：定番進行輪播（日間明亮池／夜間柔暗池），不再隨機亂跳
+       2) 動機：每首曲子造一個小動機，在每個和弦上「移調反覆」＝聽起來像有主題
+       3) 終止式：進行走完解決回主音、樂句間留呼吸 */
+
+    const SEMI3 = n => 130.81 * Math.pow(2, n / 12);   // C3 起算的半音頻率（和弦墊）
+    const SEMI5 = n => 523.25 * Math.pow(2, n / 12);   // C5 起算（旋律，音樂盒音域）
+    // 和弦組成音（相對 C 的半音數）
+    const CHORD_PCS = {
+      C: [0, 4, 7], Dm: [2, 5, 9], Em: [4, 7, 11], F: [5, 9, 12],
+      G: [7, 11, 14], Am: [9, 12, 16], Gsus: [7, 12, 14],
+    };
+    // 定番進行：日間明亮／夜間柔暗（多以 G 收尾，回到 C 時有屬→主的終止感）
+    const PROG_DAY = [
+      ['C', 'G', 'Am', 'F'], ['F', 'G', 'Em', 'Am'], ['C', 'Am', 'F', 'G'],
+      ['C', 'G', 'Am', 'Em', 'F', 'C', 'F', 'G'],   // 卡農進行
     ];
-    let chordIdx = 0;
+    const PROG_NIGHT = [
+      ['Am', 'F', 'C', 'G'], ['Am', 'Dm', 'G', 'C'], ['Dm', 'Am', 'F', 'G'],
+    ];
+    // 五聲音階攤兩個八度（半音表示）
+    const PENTA_SEMIS = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21];
+
+    // 和弦感知音階：跟當前和弦差半音打架的級音，換成和弦自己的音
+    function effScale(pcs) {
+      const chroma = pcs.map(p => p % 12);
+      return PENTA_SEMIS.map(s => {
+        const pc = s % 12, oct = s - pc;
+        for (const c of chroma) {
+          if ((pc + 1) % 12 === c || (pc + 11) % 12 === c) {
+            let np = oct + c;                       // 換成和弦音時取「最近」的八度
+            if (c - pc > 6) np -= 12;
+            if (pc - c > 6) np += 12;
+            return np;
+          }
+        }
+        return s;
+      });
+    }
+    // 音階上離某和弦音最近的級數（動機的錨點）
+    function nearestDeg(scale, targetPc) {
+      let best = 0, bd = 99;
+      scale.forEach((s, i) => {
+        const d = Math.min((s % 12 - targetPc % 12 + 12) % 12, (targetPc % 12 - s % 12 + 12) % 12);
+        if (d < bd) { bd = d; best = i; }
+      });
+      return best;
+    }
 
     function pluck(freq, vol, when = 0) {
       if (!musicOn) return;
@@ -133,51 +175,94 @@ const Audio2 = {};
       h.start(t); h.stop(t + 1.3);
     }
 
-    function chordPad() {
-      if (musicOn) {
-        const notes = CHORDS[chordIdx % CHORDS.length];
-        chordIdx += Math.random() < 0.7 ? 1 : 2;   // 偶爾跳一個和弦，不落入固定循環
-        const t = ac.currentTime;
-        notes.forEach(f => {
-          const o = ac.createOscillator();
-          o.type = 'triangle'; o.frequency.value = f;
-          const g = ac.createGain();
-          g.gain.setValueAtTime(0.0001, t);
-          g.gain.linearRampToValueAtTime(0.05, t + 2.5);      // 緩慢浮現
-          g.gain.linearRampToValueAtTime(0.0001, t + 9);      // 緩慢退場
-          o.connect(g); g.connect(musicBus);
-          o.start(t); o.stop(t + 9.5);
-        });
-      }
-      setTimeout(chordPad, 9000 + Math.random() * 5000);
+    // 和弦墊：跟著進行走（root 低八度、其餘中音域，triangle 緩起緩收）
+    function padChord(name, durSec) {
+      const pcs = CHORD_PCS[name] || [0, 4, 7];
+      const t = ac.currentTime;
+      const freqs = [SEMI3(pcs[0]), SEMI3(pcs[1]), SEMI3(pcs[2])];
+      freqs.forEach(f => {
+        const o = ac.createOscillator();
+        o.type = 'triangle'; o.frequency.value = f;
+        const g = ac.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(0.05, t + 1.8);
+        g.gain.linearRampToValueAtTime(0.0001, t + durSec + 2.2);
+        o.connect(g); g.connect(musicBus);
+        o.start(t); o.stop(t + durSec + 2.6);
+      });
     }
 
-    // 音階上第 idx 級的頻率（超過五聲就上八度）
-    const OCT = 2;
-    const noteAt = idx => PENTA[idx % 5] * OCT * (idx >= 5 ? 2 : 1);
-
-    function melodyLoop() {
-      if (musicOn) {
-        const r = Math.random();
-        if (r < 0.30) {
-          // 上行小琶音：do-mi-so 式的三連蹦跳，可愛擔當
-          const i0 = Math.floor(Math.random() * 4);
-          [i0, i0 + 2, i0 + 4].forEach((idx, k) =>
-            pluck(noteAt(idx), 0.42 - k * 0.04, k * 0.16));
-        } else if (r < 0.65) {
-          // 兩音短句：間距短、跳躍感
-          pluck(noteAt(Math.floor(Math.random() * 7)), 0.42);
-          pluck(noteAt(Math.floor(Math.random() * 7)), 0.34, 0.2);
-        } else {
-          // 單音（偶爾再高八度的小亮點）
-          pluck(noteAt(Math.floor(Math.random() * 5)) * (Math.random() < 0.3 ? 2 : 1), 0.42);
-        }
+    // 動機：一段小節奏＋輪廓（級數差），整首曲子共用、逐和弦移調反覆
+    const RHYTHMS = [[0, 0.2], [0, 0.18, 0.36], [0, 0.24, 0.48], [0, 0.16, 0.32, 0.55]];
+    function mkMotif() {
+      const offs = RHYTHMS[Math.floor(Math.random() * RHYTHMS.length)];
+      const degs = [0];
+      let lastLeap = 0;
+      for (let i = 1; i < offs.length; i++) {
+        let step;
+        if (lastLeap !== 0) { step = lastLeap > 0 ? -1 : 1; lastLeap = 0; }  // 跳進後反向級進
+        else if (Math.random() < 0.25) { step = Math.random() < 0.5 ? 2 : -2; lastLeap = step; }
+        else step = Math.random() < 0.55 ? 1 : -1;
+        degs.push(degs[i - 1] + step);
       }
-      setTimeout(melodyLoop, 900 + Math.random() * 1500);
+      return { offs, degs };
     }
 
-    setTimeout(chordPad, 1200);
-    setTimeout(melodyLoop, 2600);
+    // 在指定和弦上奏動機：錨點吸附和弦音（強拍），其餘沿和弦感知音階級進
+    function playMotif(motif, chordName, opts = {}) {
+      const pcs = CHORD_PCS[chordName] || [0, 4, 7];
+      const scale = effScale(pcs);
+      const anchorPc = pcs[Math.random() < 0.6 ? 0 : Math.random() < 0.5 ? 1 : 2];
+      let anchor = nearestDeg(scale, anchorPc);
+      if (anchor < 2 && Math.random() < 0.5) anchor += 5;    // 偶爾上八度亮一下
+      motif.offs.forEach((off, k) => {
+        const deg = Math.max(0, Math.min(scale.length - 1, anchor + motif.degs[k]));
+        pluck(SEMI5(scale[deg]), (opts.vol || 0.42) - k * 0.04, off);
+      });
+    }
+
+    // 曲子引擎：選進行＋造動機 → 每個和弦奏墊＋動機（移調反覆）→
+    // 走完數輪以終止式收尾 → 留一段只有風聲的呼吸，再開下一首
+    let piece = null;
+    function musicStep() {
+      if (!musicOn) { setTimeout(musicStep, 2000); return; }
+      if (!piece) {
+        const pool = isNightFn() ? PROG_NIGHT : PROG_DAY;
+        piece = {
+          prog: pool[Math.floor(Math.random() * pool.length)],
+          motif: mkMotif(),
+          idx: 0, cycle: 0,
+          cycles: 2 + Math.floor(Math.random() * 2),          // 每首 2~3 輪
+        };
+      }
+      const chordMs = 4200 + Math.random() * 800;
+      const ch = piece.prog[piece.idx];
+      const lastChord = piece.idx === piece.prog.length - 1;
+      const lastCycle = piece.cycle === piece.cycles - 1;
+      padChord(ch, chordMs / 1000);
+      if (lastChord && lastCycle) {
+        // 終止式：解決回主音（根音長音＋五度輕聲），不奏動機
+        const pcs = CHORD_PCS[piece.prog[0]] || [0, 4, 7];
+        pluck(SEMI5(pcs[0] % 12), 0.46, chordMs / 1000 * 0.55);
+        pluck(SEMI5(pcs[0] % 12 + 7), 0.2, chordMs / 1000 * 0.55 + 0.35);
+        piece = null;
+        setTimeout(musicStep, chordMs + 5000 + Math.random() * 5000);   // 曲間呼吸
+        return;
+      }
+      if (Math.random() < 0.85) {
+        // 第二輪起 30% 微變奏（動機少一個尾音），其餘忠實反覆＝記憶點
+        const vary = piece.cycle > 0 && Math.random() < 0.3;
+        const m = vary
+          ? { offs: piece.motif.offs.slice(0, -1), degs: piece.motif.degs.slice(0, -1) }
+          : piece.motif;
+        playMotif(m, ch, { vol: 0.42 });
+      }
+      piece.idx++;
+      if (piece.idx >= piece.prog.length) { piece.idx = 0; piece.cycle++; }
+      setTimeout(musicStep, chordMs);
+    }
+
+    setTimeout(musicStep, 1500);
   }
 
   /* ---------- 對外介面 ---------- */
