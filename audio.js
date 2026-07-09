@@ -114,14 +114,17 @@ const Audio2 = {};
 
     const SEMI3 = n => 130.81 * Math.pow(2, n / 12);   // C3 起算的半音頻率（和弦墊）
     const SEMI5 = n => 523.25 * Math.pow(2, n / 12);   // C5 起算（旋律，音樂盒音域）
-    // 和弦組成音（相對 C 的半音數）
+    // 和弦組成音（相對 C 的半音數；七和弦第四音給旋律用，墊只取前三）
     const CHORD_PCS = {
-      C: [0, 4, 7], Dm: [2, 5, 9], Em: [4, 7, 11], F: [5, 9, 12],
-      G: [7, 11, 14], Am: [9, 12, 16], Gsus: [7, 12, 14],
+      C: [0, 4, 7], Cmaj7: [0, 4, 7, 11], Dm: [2, 5, 9], Dm7: [2, 5, 9, 12],
+      Em: [4, 7, 11], Em7: [4, 7, 11, 14], F: [5, 9, 12], Fmaj7: [5, 9, 12, 16],
+      G: [7, 11, 14], G7: [7, 11, 14, 17], Am: [9, 12, 16], Am7: [9, 12, 16, 19],
+      Gsus: [7, 12, 14],
     };
-    // 定番進行：日間明亮／夜間柔暗（多以 G 收尾，回到 C 時有屬→主的終止感）
+    // 定番進行：日間亮色七和弦為主（參考曲配方：Cmaj7-Am7-Fmaj7-G7）／夜間柔暗
     const PROG_DAY = [
-      ['C', 'G', 'Am', 'F'], ['F', 'G', 'Em', 'Am'], ['C', 'Am', 'F', 'G'],
+      ['Cmaj7', 'Am7', 'Fmaj7', 'G7'], ['C', 'G', 'Am', 'F'],
+      ['Fmaj7', 'G7', 'Em7', 'Am7'], ['C', 'Am', 'F', 'G'],
       ['C', 'G', 'Am', 'Em', 'F', 'C', 'F', 'G'],   // 卡農進行
     ];
     const PROG_NIGHT = [
@@ -192,16 +195,23 @@ const Audio2 = {};
       });
     }
 
-    // 動機：一段小節奏＋輪廓（級數差），整首曲子共用、逐和弦移調反覆
-    const RHYTHMS = [[0, 0.2], [0, 0.18, 0.36], [0, 0.24, 0.48], [0, 0.16, 0.32, 0.55]];
-    function mkMotif() {
-      const offs = RHYTHMS[Math.floor(Math.random() * RHYTHMS.length)];
+    // 動機：一段小節奏＋輪廓（級數差），整首曲子共用、逐和弦移調反覆。
+    // 白天用 3-3-2 切分節奏（參考曲的蹦跳配方：音落在 8 步的 0/3/6 步）＋下行瀑布輪廓；
+    // 夜晚用貼近曲首的柔和短簇。
+    const RHYTHMS_NIGHT = [[0, 0.2], [0, 0.18, 0.36], [0, 0.24, 0.48], [0, 0.16, 0.32, 0.55]];
+    const RHYTHMS_DAY = [
+      [0, 1.29, 2.57], [0, 1.29, 2.57, 3.1], [0, 0.64, 1.29, 2.57], [0, 1.29, 1.93, 2.57],
+    ];
+    function mkMotif(day) {
+      const pool = day ? RHYTHMS_DAY : RHYTHMS_NIGHT;
+      const offs = pool[Math.floor(Math.random() * pool.length)];
       const degs = [0];
       let lastLeap = 0;
       for (let i = 1; i < offs.length; i++) {
         let step;
         if (lastLeap !== 0) { step = lastLeap > 0 ? -1 : 1; lastLeap = 0; }  // 跳進後反向級進
         else if (Math.random() < 0.25) { step = Math.random() < 0.5 ? 2 : -2; lastLeap = step; }
+        else if (day) step = Math.random() < 0.72 ? -1 : 1;   // 白天偏下行＝瀑布式鈴聲
         else step = Math.random() < 0.55 ? 1 : -1;
         degs.push(degs[i - 1] + step);
       }
@@ -214,7 +224,8 @@ const Audio2 = {};
       const scale = effScale(pcs);
       const anchorPc = pcs[Math.random() < 0.6 ? 0 : Math.random() < 0.5 ? 1 : 2];
       let anchor = nearestDeg(scale, anchorPc);
-      if (anchor < 2 && Math.random() < 0.5) anchor += 5;    // 偶爾上八度亮一下
+      if (opts.high) anchor = Math.min(scale.length - 1, anchor + 5);   // 白天瀑布從高處落下
+      else if (anchor < 2 && Math.random() < 0.5) anchor += 5;          // 夜晚偶爾上八度亮一下
       motif.offs.forEach((off, k) => {
         const deg = Math.max(0, Math.min(scale.length - 1, anchor + motif.degs[k]));
         pluck(SEMI5(scale[deg]), (opts.vol || 0.42) - k * 0.04, off);
@@ -227,15 +238,18 @@ const Audio2 = {};
     function musicStep() {
       if (!musicOn) { setTimeout(musicStep, 2000); return; }
       if (!piece) {
-        const pool = isNightFn() ? PROG_NIGHT : PROG_DAY;
+        const day = !isNightFn();
+        const pool = day ? PROG_DAY : PROG_NIGHT;
         piece = {
+          day,
           prog: pool[Math.floor(Math.random() * pool.length)],
-          motif: mkMotif(),
+          motif: mkMotif(day),
           idx: 0, cycle: 0,
           cycles: 2 + Math.floor(Math.random() * 2),          // 每首 2~3 輪
         };
       }
-      const chordMs = 4200 + Math.random() * 800;
+      // 白天和聲節奏較快（參考曲每和弦約 3.4 秒），夜晚放慢呼吸
+      const chordMs = piece.day ? 3400 + Math.random() * 500 : 4600 + Math.random() * 600;
       const ch = piece.prog[piece.idx];
       const lastChord = piece.idx === piece.prog.length - 1;
       const lastCycle = piece.cycle === piece.cycles - 1;
@@ -249,13 +263,14 @@ const Audio2 = {};
         setTimeout(musicStep, chordMs + 5000 + Math.random() * 5000);   // 曲間呼吸
         return;
       }
-      if (Math.random() < 0.85) {
-        // 第二輪起 30% 微變奏（動機少一個尾音），其餘忠實反覆＝記憶點
-        const vary = piece.cycle > 0 && Math.random() < 0.3;
+      if (Math.random() < (piece.day ? 0.95 : 0.8)) {
+        // 白天忠實反覆為主（參考曲 sequenz 配方）；夜晚多留白、變奏稍多
+        const varyP = piece.day ? 0.15 : 0.3;
+        const vary = piece.cycle > 0 && Math.random() < varyP;
         const m = vary
           ? { offs: piece.motif.offs.slice(0, -1), degs: piece.motif.degs.slice(0, -1) }
           : piece.motif;
-        playMotif(m, ch, { vol: 0.42 });
+        playMotif(m, ch, { vol: 0.42, high: piece.day });
       }
       piece.idx++;
       if (piece.idx >= piece.prog.length) { piece.idx = 0; piece.cycle++; }
