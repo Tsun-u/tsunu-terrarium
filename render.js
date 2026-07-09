@@ -412,6 +412,13 @@ const Render = {};
       };
     } else if (kind === 'reflect') {
       ambients.push({ kind, start: now, dur: 11000, data: { seed: Math.floor(rnd() * 100) } });
+    } else if (kind === 'fish') {
+      // 池塘跳魚：從水面躍出的小拋物線＋入水水花
+      ambients.push({ kind, start: now, dur: 1500, data: {
+        x0: -0.4 + rnd() * 0.5,          // 起點（池塘半徑比例）
+        dir: rnd() < 0.5 ? 1 : -1,
+        h: 9 + rnd() * 5,                // 跳躍高度
+      } });
     }
     // 'nap' 由 ui 直接改 action，不需要動畫項
   };
@@ -489,6 +496,25 @@ const Render = {};
           if (wing) { ctx.fillRect(x - 2, y - 1, 2, 2); ctx.fillRect(x + 1, y - 1, 2, 2); }
           else { ctx.fillRect(x - 1, y - 2, 1, 2); ctx.fillRect(x + 1, y - 2, 1, 2); }
           ctx.fillStyle = `rgba(60,50,40,${fade})`; ctx.fillRect(x, y - 1, 1, 2);
+        }
+      } else if (a.kind === 'fish') {
+        const px = C.WORLD_W * 0.79, py = C.WORLD_H * 0.8;
+        const prx = scenePondBig ? 40 : 26;
+        const p = (tMs - a.start) / a.dur;               // 0→1
+        const fx = px + (a.data.x0 + p * 0.5 * a.data.dir) * prx;
+        const fy = py - Math.sin(Math.PI * p) * a.data.h - 1;
+        if (p < 0.92) {
+          // 魚身 2×1＋尾巴，沿拋物線翻躍（下落段尾巴朝上）
+          const rising = p < 0.5;
+          ctx.fillStyle = `rgba(196,214,228,${fade})`;
+          ctx.fillRect(Math.round(fx), Math.round(fy), 2, 1);
+          ctx.fillStyle = `rgba(150,170,190,${fade})`;
+          ctx.fillRect(Math.round(fx - a.data.dir), Math.round(fy + (rising ? 1 : -1)), 1, 1);
+        } else {
+          // 入水水花：三點白花濺開
+          ctx.fillStyle = `rgba(235,250,255,${fade * 0.9})`;
+          const sx = Math.round(fx), sy = Math.round(py - 1);
+          ctx.fillRect(sx, sy - 1, 1, 1); ctx.fillRect(sx - 2, sy, 1, 1); ctx.fillRect(sx + 2, sy, 1, 1);
         }
       } else if (a.kind === 'reflect') {
         // 池塘倒影：水面碎光閃爍＋一圈圈慢速漣漪

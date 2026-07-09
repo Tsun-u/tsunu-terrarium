@@ -1040,6 +1040,54 @@ const UI = {};
     updateHearts();
   };
 
+  /* ---------- 佈景互動：幼體盪鞦韆（純表現層，同追蝴蝶的引導手法） ---------- */
+
+  let riding = null;   // 一次只有一隻在玩
+  function tryPlaytime() {
+    if (!W || document.hidden || riding) return;
+    const swing = (W.decor || []).find(d => d.kind === 'swing');
+    const kids = W.creatures.filter(c => c.stage === 'child');
+    if (!swing || !kids.length || Math.random() < 0.35) return;
+    const kid = kids[Math.floor(Math.random() * kids.length)];
+    riding = { id: kid.id, phase: 'walk', until: Date.now() + 30000 };   // 30 秒走不到就放棄
+    const iv = setInterval(() => {
+      const c = W.creatures.find(x => x.id === riding?.id);
+      const sw = (W.decor || []).find(d => d.kind === 'swing');
+      if (!c || !sw || c.stage !== 'child' || Date.now() > riding.until) {
+        riding = null; clearInterval(iv); return;                        // 鞦韆被收走/長大/超時 → 收工
+      }
+      if (riding.phase === 'walk') {
+        const d = Math.hypot(c.x - sw.x, c.y - (sw.y - 2)) || 1;
+        if (d < 5) {
+          riding.phase = 'ride';
+          riding.until = Date.now() + 14000 + Math.random() * 10000;     // 盪 14~24 秒
+        } else {
+          c.action = 'walk'; c.actionUntil = W.tick + 4;
+          c.vx = (sw.x - c.x) / d * C.WALK_SPEED_MAX * 0.8;
+          c.vy = (sw.y - 2 - c.y) / d * C.WALK_SPEED_MAX * 0.8;
+        }
+      } else {
+        // 坐上座板，跟鞦韆 sprite 同一條 sin 同步微擺
+        c.action = 'idle'; c.actionUntil = W.tick + 4;
+        c.vx = 0; c.vy = 0;
+        c.x = sw.x + Math.sin(performance.now() / 800) * 1.6;
+        c.y = sw.y - 6;
+      }
+    }, 250);
+  }
+  function playtimeLoop() {
+    setTimeout(() => { tryPlaytime(); playtimeLoop(); }, 20000 + Math.random() * 30000);
+  }
+
+  /* ---------- 池塘跳魚（小驚喜，不進事件排程、無 ❤） ---------- */
+
+  function fishLoop() {
+    setTimeout(() => {
+      if (W && !document.hidden && Math.random() < 0.7) Render.playAmbient('fish', W);
+      fishLoop();
+    }, 25000 + Math.random() * 45000);
+  }
+
   /* ---------- 初始化 ---------- */
 
   UI.init = function (world) {
@@ -1116,6 +1164,8 @@ const UI = {};
     };
     document.addEventListener('pointerdown', startAudio);
     scheduleAmbient();
+    playtimeLoop();
+    fishLoop();
   };
 })();
 

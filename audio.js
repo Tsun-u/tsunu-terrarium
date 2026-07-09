@@ -159,7 +159,7 @@ const Audio2 = {};
       return best;
     }
 
-    function pluck(freq, vol, when = 0) {
+    function pluck(freq, vol, when = 0, decay = 2.6) {
       if (!musicOn) return;
       const t = ac.currentTime + when;
       const o = ac.createOscillator();
@@ -169,13 +169,13 @@ const Audio2 = {};
       h.type = 'sine'; h.frequency.value = freq * 3;                       // 三倍頻泛音＝音樂盒質感
       const g = ac.createGain(), hg = ac.createGain();
       g.gain.setValueAtTime(vol, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 2.6);
+      g.gain.exponentialRampToValueAtTime(0.001, t + decay);
       hg.gain.setValueAtTime(vol * 0.16, t);
-      hg.gain.exponentialRampToValueAtTime(0.001, t + 1.1);
+      hg.gain.exponentialRampToValueAtTime(0.001, t + Math.min(1.1, decay));
       o.connect(g); g.connect(musicBus);
       h.connect(hg); hg.connect(musicBus);
-      o.start(t); o.stop(t + 2.8);
-      h.start(t); h.stop(t + 1.3);
+      o.start(t); o.stop(t + decay + 0.2);
+      h.start(t); h.stop(t + Math.min(1.1, decay) + 0.2);
     }
 
     // 和弦墊：跟著進行走（root 低八度、其餘中音域，triangle 緩起緩收）
@@ -199,8 +199,11 @@ const Audio2 = {};
     // 白天用 3-3-2 切分節奏（參考曲的蹦跳配方：音落在 8 步的 0/3/6 步）＋下行瀑布輪廓；
     // 夜晚用貼近曲首的柔和短簇。
     const RHYTHMS_NIGHT = [[0, 0.2], [0, 0.18, 0.36], [0, 0.24, 0.48], [0, 0.16, 0.32, 0.55]];
+    // 白天加密版：以 0.43s（70bpm 八分音符）為格，3-3-2 骨架＋墊步填縫——
+    // 句內不留超過一拍的空隙，聽感才會「一直在動」
     const RHYTHMS_DAY = [
-      [0, 1.29, 2.57], [0, 1.29, 2.57, 3.1], [0, 0.64, 1.29, 2.57], [0, 1.29, 1.93, 2.57],
+      [0, 0.43, 1.29, 1.71, 2.57], [0, 0.86, 1.29, 2.14, 2.57, 3.0],
+      [0, 0.43, 0.86, 1.29, 2.57], [0, 1.29, 1.71, 2.57, 3.0],
     ];
     function mkMotif(day) {
       const pool = day ? RHYTHMS_DAY : RHYTHMS_NIGHT;
@@ -228,7 +231,7 @@ const Audio2 = {};
       else if (anchor < 2 && Math.random() < 0.5) anchor += 5;          // 夜晚偶爾上八度亮一下
       motif.offs.forEach((off, k) => {
         const deg = Math.max(0, Math.min(scale.length - 1, anchor + motif.degs[k]));
-        pluck(SEMI5(scale[deg]), (opts.vol || 0.42) - k * 0.04, off);
+        pluck(SEMI5(scale[deg]), (opts.vol || 0.42) - k * 0.03, off, opts.decay || 2.6);
       });
     }
 
@@ -255,22 +258,31 @@ const Audio2 = {};
       const lastCycle = piece.cycle === piece.cycles - 1;
       padChord(ch, chordMs / 1000);
       if (lastChord && lastCycle) {
-        // 終止式：解決回主音（根音長音＋五度輕聲），不奏動機
         const pcs = CHORD_PCS[piece.prog[0]] || [0, 4, 7];
-        pluck(SEMI5(pcs[0] % 12), 0.46, chordMs / 1000 * 0.55);
-        pluck(SEMI5(pcs[0] % 12 + 7), 0.2, chordMs / 1000 * 0.55 + 0.35);
+        if (piece.day) {
+          // 白天終止式：三音下行小跑步落回主音，收得乾脆不拖
+          pluck(SEMI5(pcs[0] % 12 + 7), 0.4, 0.4, 1.6);
+          pluck(SEMI5(pcs[0] % 12 + 4), 0.36, 0.83, 1.6);
+          pluck(SEMI5(pcs[0] % 12), 0.46, 1.26, 2.6);
+        } else {
+          // 夜晚終止式：根音長音＋五度輕聲，餘韻慢慢散
+          pluck(SEMI5(pcs[0] % 12), 0.46, chordMs / 1000 * 0.55);
+          pluck(SEMI5(pcs[0] % 12 + 7), 0.2, chordMs / 1000 * 0.55 + 0.35);
+        }
+        const breath = piece.day ? 2500 + Math.random() * 2000 : 5000 + Math.random() * 5000;
         piece = null;
-        setTimeout(musicStep, chordMs + 5000 + Math.random() * 5000);   // 曲間呼吸
+        setTimeout(musicStep, chordMs + breath);   // 曲間呼吸：白天短、夜晚長
         return;
       }
-      if (Math.random() < (piece.day ? 0.95 : 0.8)) {
-        // 白天忠實反覆為主（參考曲 sequenz 配方）；夜晚多留白、變奏稍多
+      if (piece.day || Math.random() < 0.8) {
+        // 白天忠實反覆為主（參考曲 sequenz 配方）＋短衰減讓快音粒粒分明；
+        // 夜晚多留白、變奏稍多、長餘韻
         const varyP = piece.day ? 0.15 : 0.3;
         const vary = piece.cycle > 0 && Math.random() < varyP;
         const m = vary
           ? { offs: piece.motif.offs.slice(0, -1), degs: piece.motif.degs.slice(0, -1) }
           : piece.motif;
-        playMotif(m, ch, { vol: 0.42, high: piece.day });
+        playMotif(m, ch, { vol: 0.42, high: piece.day, decay: piece.day ? 1.6 : 2.6 });
       }
       piece.idx++;
       if (piece.idx >= piece.prog.length) { piece.idx = 0; piece.cycle++; }
