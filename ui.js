@@ -1079,6 +1079,58 @@ const UI = {};
     setTimeout(() => { tryPlaytime(); playtimeLoop(); }, 20000 + Math.random() * 30000);
   }
 
+  /* ---------- 皮小孩開關燈（夜間限定惡作劇，玩完落跑） ---------- */
+
+  let pranking = false;
+  function tryPrank() {
+    if (!W || document.hidden || pranking || !Render.isNight(W)) return;
+    const lantern = (W.decor || []).find(d => d.kind === 'lantern');
+    const kids = W.creatures.filter(c => c.stage === 'child' && c.id !== riding?.id);
+    if (!lantern || !kids.length || Math.random() < 0.4) return;
+    const kid = kids[Math.floor(Math.random() * kids.length)];
+    pranking = true;
+    const state = { phase: 'walk', until: Date.now() + 25000 };
+    const iv = setInterval(() => {
+      const c = W.creatures.find(x => x.id === kid.id);
+      const lt = (W.decor || []).find(d => d.kind === 'lantern');
+      if (!c || !lt || c.stage !== 'child' || Date.now() > state.until) {
+        pranking = false; clearInterval(iv);
+        Render.setLanternPrank(null);
+        return;
+      }
+      const tx = lt.x + 7, ty = lt.y;               // 站在燈旁邊
+      if (state.phase === 'walk') {
+        const d = Math.hypot(c.x - tx, c.y - ty) || 1;
+        if (d < 4) {
+          state.phase = 'flick';
+          state.until = Date.now() + 3800 + Math.random() * 1700;   // 狂按 3.8~5.5 秒
+          Render.setLanternPrank({ x: lt.x, y: lt.y, until: state.until });
+        } else {
+          c.action = 'walk'; c.actionUntil = W.tick + 4;
+          c.vx = (tx - c.x) / d * C.WALK_SPEED_MAX * 0.9;
+          c.vy = (ty - c.y) / d * C.WALK_SPEED_MAX * 0.9;
+        }
+      } else {
+        // 按開關中：站定微晃（跟閃爍同節奏的小抖動）
+        c.action = 'idle'; c.actionUntil = W.tick + 4;
+        c.vx = 0; c.vy = 0;
+        c.x = tx + (Math.floor(performance.now() / 280) % 2 ? 0.8 : -0.8);
+        if (Date.now() > state.until - 100) {
+          // 玩夠了：心虛落跑！
+          const ang = Math.random() * Math.PI * 2;
+          c.action = 'walk'; c.actionUntil = W.tick + 6;
+          c.vx = Math.cos(ang) * C.RUSH_SPEED * 0.8;
+          c.vy = Math.abs(Math.sin(ang)) * C.RUSH_SPEED * 0.8 * (c.y > (C.SKY_H + C.WORLD_H) / 2 ? -1 : 1);
+          pranking = false; clearInterval(iv);
+          Render.setLanternPrank(null);
+        }
+      }
+    }, 250);
+  }
+  function prankLoop() {
+    setTimeout(() => { tryPrank(); prankLoop(); }, 40000 + Math.random() * 50000);
+  }
+
   /* ---------- 池塘跳魚（小驚喜，不進事件排程、無 ❤） ---------- */
 
   function fishLoop() {
@@ -1166,6 +1218,7 @@ const UI = {};
     scheduleAmbient();
     playtimeLoop();
     fishLoop();
+    prankLoop();
   };
 })();
 

@@ -279,14 +279,25 @@ const Render = {};
     }
   }
 
+  // 皮小孩開關燈惡作劇：ui 設定後，該座石燈的夜光會啪嗒啪嗒閃
+  let lanternPrank = null;   // { x, y, until }
+  Render.setLanternPrank = p => { lanternPrank = p; };
+
   // 石燈夜光：畫在夜幕之上才不會被壓暗（同星星層）
   function drawLanternGlows(world, b) {
     if (b >= 0.45) return;
     const a = (0.45 - b) * 0.9;
+    const tMs = performance.now();
+    if (lanternPrank && tMs > lanternPrank.until) lanternPrank = null;
     for (const d of (world.decor || [])) {
       if (d.kind !== 'lantern') continue;
+      let mul = 1;
+      if (lanternPrank && Math.abs(d.x - lanternPrank.x) < 2 && Math.abs(d.y - lanternPrank.y) < 2) {
+        mul = Math.floor(tMs / 280) % 2;   // 啪嗒啪嗒
+        if (!mul) continue;
+      }
       const g = ctx.createRadialGradient(d.x, d.y - 10, 1, d.x, d.y - 10, 14);
-      g.addColorStop(0, `rgba(255,226,150,${a * 0.55})`);
+      g.addColorStop(0, `rgba(255,226,150,${a * 0.55 * mul})`);
       g.addColorStop(1, 'rgba(255,226,150,0)');
       ctx.fillStyle = g;
       ctx.fillRect(d.x - 14, d.y - 24, 28, 28);
@@ -471,6 +482,14 @@ const Render = {};
         const p = Math.min(1, t / 0.75);
         const gx = from.rx + (to.rx - from.rx) * p;
         const gy = from.ry - 10 + (to.ry - from.ry) * p - Math.sin(p * Math.PI) * 8;
+        // 星塵尾跡：提高這場浪漫的目擊率
+        for (let k = 1; k <= 4; k++) {
+          const tp = Math.max(0, p - k * 0.06);
+          const txp = from.rx + (to.rx - from.rx) * tp;
+          const typ = from.ry - 10 + (to.ry - from.ry) * tp - Math.sin(tp * Math.PI) * 8;
+          ctx.fillStyle = `rgba(255,220,235,${fade * (1 - k * 0.22)})`;
+          ctx.fillRect(Math.round(txp), Math.round(typ), 1, 1);
+        }
         ctx.fillStyle = `rgba(255,180,205,${fade})`;
         ctx.fillRect(Math.round(gx) - 1, Math.round(gy), 3, 1); ctx.fillRect(Math.round(gx), Math.round(gy) - 1, 1, 3);
         ctx.fillStyle = `rgba(255,202,40,${fade})`; ctx.fillRect(Math.round(gx), Math.round(gy), 1, 1);
