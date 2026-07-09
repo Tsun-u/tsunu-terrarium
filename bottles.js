@@ -19,7 +19,9 @@ const Bottles = {};
   }
   function saveMeta() { localStorage.setItem(META_KEY, JSON.stringify(meta)); }
 
-  Bottles.defaultName = () => `${NUM[meta.bottles.length] || (meta.bottles.length + 1)}號瓶`;
+  Bottles.defaultName = () => (window.C && C.LANG === 'en')
+    ? `Bottle ${meta.bottles.length + 1}`
+    : `${NUM[meta.bottles.length] || (meta.bottles.length + 1)}號瓶`;
 
   /* 開機路由：回傳 'load'（進當前瓶）或 'ceremony'（辦開瓶儀式） */
   Bottles.init = function () {

@@ -64,6 +64,8 @@
     display: flex; align-items: center; justify-content: center;
     text-decoration: none; font-size: 22px;
   }
+  /* 語言切換（左上第三顆，顯示要切過去的語言） */
+  #btnLang { left: 120px; top: 12px; font-size: 15px; font-weight: bold; color: #dde; }
   /* 愛心計數（右上，唯一常駐數字） */
   #hearts {
     position: fixed; right: 14px; top: 12px; z-index: 50;
@@ -85,6 +87,7 @@
 </a>
 <a class="corner-btn" id="btnHelp" href="https://github.com/Tsun-u/tsunu-terrarium#readme"
    target="_blank" rel="noopener" title="說明書" aria-label="開啟遊戲說明">📖</a>
+<button class="corner-btn" id="btnLang" title="Language">EN</button>
 <button class="corner-btn" id="btnTree"  title="族譜">🌳</button>
 <button class="corner-btn" id="btnShop"  title="商店">🛍️</button>
 <button class="corner-btn" id="btnBottles" title="瓶子">🫙</button>
@@ -105,6 +108,46 @@
 <script src="drive.js"></script>
 <script>
 /* ---------- 開機流程 ---------- */
+
+// 語言：偏好優先，否則跟瀏覽器（中文圈→zh、其他→en）。文字面極小，
+// 字典就這一份：按鈕提示、頁標題、說明書連結。瓶名/動物名由 bottles/sim 讀 C.LANG。
+(function initLang() {
+  let lang = null;
+  try { lang = JSON.parse(localStorage.getItem('terrarium_prefs') || '{}').lang; } catch (e) {}
+  C.LANG = lang || (navigator.language && navigator.language.startsWith('zh') ? 'zh' : 'en');
+  const T = C.LANG === 'zh' ? {
+    title: '🌱 像素生態瓶', github: '在 GitHub 檢視原始碼', help: '開啟遊戲說明',
+    readme: 'https://github.com/Tsun-u/tsunu-terrarium#readme',
+    btns: { btnTree: '族譜', btnShop: '商店', btnBottles: '瓶子', btnSpeed: '速度',
+      btnStars: '星空', btnMusic: '音樂', btnSound: '音效', btnHelp: '說明書', btnLang: 'English' },
+  } : {
+    title: '🌱 Pixel Terrarium', github: 'View source on GitHub', help: 'Open the game guide',
+    readme: 'https://github.com/Tsun-u/tsunu-terrarium/blob/main/README.en.md',
+    btns: { btnTree: 'Family tree', btnShop: 'Shop', btnBottles: 'Bottles', btnSpeed: 'Speed',
+      btnStars: 'Star gallery', btnMusic: 'Music', btnSound: 'Sound', btnHelp: 'Guide', btnLang: '中文' },
+  };
+  C._T = T;
+  document.title = T.title;
+  for (const [id, tip] of Object.entries(T.btns)) {
+    const el = document.getElementById(id);
+    if (el) el.title = tip;
+  }
+  const gh = document.getElementById('btnGithub');
+  gh.setAttribute('aria-label', T.github);
+  const help = document.getElementById('btnHelp');
+  help.href = T.readme;
+  help.setAttribute('aria-label', T.help);
+  // 🌐 鈕顯示「切過去的語言」，點了存偏好並重載
+  const lb = document.getElementById('btnLang');
+  lb.textContent = C.LANG === 'zh' ? 'EN' : '中';
+  lb.onclick = () => {
+    let p = {};
+    try { p = JSON.parse(localStorage.getItem('terrarium_prefs') || '{}'); } catch (e) {}
+    p.lang = C.LANG === 'zh' ? 'en' : 'zh';
+    localStorage.setItem('terrarium_prefs', JSON.stringify(p));
+    location.reload();
+  };
+})();
 
 // 時間倍速：玩家偏好（⏩ 按鈕，1/2/5/10）先套用；?fast=N 除錯參數優先蓋過。
 // 需在 Sim.load 之前設定，離線折算才會跟著玩家選的節奏。
@@ -155,7 +198,7 @@ function startLoops(rng) {
   if (UI.init) UI.init(world);
   const btn = document.getElementById('btnBottles');
   if (window.Bottles && Bottles.hasMeta()) {
-    document.title = `🌱 ${Bottles.activeName() || '像素生態瓶'}`;
+    document.title = `🌱 ${Bottles.activeName() || C._T.title.slice(2)}`;
     btn.onclick = () => Bottles.openPanel(world);
   } else if (btn) btn.style.display = 'none';
 }
@@ -192,7 +235,7 @@ function boot() {
       world = Sim.newWorld(rng, genes);
       if (Sim.save) Sim.save(world);
       startLoops(rng);
-    }, window.Bottles ? Bottles.defaultName() : '一號瓶');
+    }, window.Bottles ? Bottles.defaultName() : (C.LANG === 'zh' ? '一號瓶' : 'Bottle 1'));
   } else {
     world = Sim.newWorld(rng);
     startLoops(rng);
