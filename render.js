@@ -102,14 +102,34 @@ const Render = {};
     } else {
       cv = placeholderSprite(cr);   // Genetics 未就緒：色圓佔位
     }
-    cv = withOutline(cv, cr);       // 外框線：避免小動物跟背景溶在一起
+    cv = withOutline(cv, geneLum(cr));   // 外框線：避免小動物跟背景溶在一起
     spriteCache.set(key, cv);
     return cv;
   }
 
-  // 明暗自適應外框：主色亮 → 近黑框、主色暗 → 近白框。
+  // 主色感知亮度（用基因色估算，0~1）
+  function geneLum(cr) {
+    const { h: gh, s: gs, l: gl } = cr.genes.color;
+    const a = gs * Math.min(gl, 1 - gl);
+    const f = n => { const k = (n + gh / 30) % 12;
+      return gl - a * Math.max(-1, Math.min(k - 3, Math.min(9 - k, 1))); };
+    return 0.299 * f(0) + 0.587 * f(8) + 0.114 * f(4);
+  }
+
+  // canvas 不透明像素的平均亮度（0~1，裝飾 sprite 用）
+  function avgLum(cv) {
+    const c2 = cv.getContext('2d');
+    const px = c2.getImageData(0, 0, cv.width, cv.height).data;
+    let sum = 0, n = 0;
+    for (let i = 0; i < px.length; i += 4) {
+      if (px[i + 3] > 60) { sum += (0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]) / 255; n++; }
+    }
+    return n ? sum / n : 0.5;
+  }
+
+  // 明暗自適應外框：主體亮 → 近黑框、主體暗 → 近白框。
   // 掃 alpha：透明像素若貼著不透明像素就是框。
-  function withOutline(src, cr) {
+  function withOutline(src, lum) {
     const w = src.width + 2, h = src.height + 2;
     const out = document.createElement('canvas');
     out.width = w; out.height = h;
@@ -118,12 +138,6 @@ const Render = {};
     const img = c2.getImageData(0, 0, w, h);
     const px = img.data;
     const solid = i => px[i * 4 + 3] > 60;
-    // 主色感知亮度（用基因色估算）
-    const { h: gh, s: gs, l: gl } = cr.genes.color;
-    const a = gs * Math.min(gl, 1 - gl);
-    const f = n => { const k = (n + gh / 30) % 12;
-      return gl - a * Math.max(-1, Math.min(k - 3, Math.min(9 - k, 1))); };
-    const lum = 0.299 * f(0) + 0.587 * f(8) + 0.114 * f(4);   // 0~1
     const [or_, og, ob] = lum > 0.62 ? [42, 44, 56] : [248, 248, 242];
     const marks = [];
     for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
@@ -229,8 +243,9 @@ const Render = {};
       }
       s.fillStyle = '#c79868'; s.fillRect(0, 2, 26, 1);        // 扶手
     }
-    decorCache.set(kind, cv);
-    return cv;
+    const outlined = withOutline(cv, avgLum(cv));   // 裝飾同享自適應外框，不溶進草地
+    decorCache.set(kind, outlined);
+    return outlined;
   }
 
   function swingSprite(tMs) {
@@ -244,7 +259,7 @@ const Render = {};
     s.fillStyle = '#c9c2b8';
     s.fillRect(7 + sway, 2, 1, 9); s.fillRect(12 + sway, 2, 1, 9);  // 繩
     s.fillStyle = '#c79868'; s.fillRect(6 + sway, 11, 8, 2);   // 座板
-    return cv;
+    return withOutline(cv, avgLum(cv));   // 動態 sprite 每幀補框（尺寸小，成本可忽略）
   }
 
   function drawDecor(world, tMs, b) {
@@ -255,6 +270,11 @@ const Render = {};
     for (const d of list) {
       if (d.kind === 'pond') continue;
       const sp = decorSprite(d.kind, tMs);
+      // 落地影子：跟小動物同款的比例橢圓，視覺語言一致
+      ctx.fillStyle = 'rgba(24,36,24,0.28)';
+      ctx.beginPath();
+      ctx.ellipse(d.x, d.y - 0.5, sp.width * 0.34, Math.max(1.4, sp.width * 0.12), 0, 0, 6.29);
+      ctx.fill();
       ctx.drawImage(sp, Math.round(d.x - sp.width / 2), Math.round(d.y - sp.height));
     }
   }
