@@ -605,3 +605,34 @@ test('老年看天空：非 elder 不會出現 gaze 狀態', () => {
     assert.notStrictEqual(c.action, 'gaze', 'adult 不該出現 gaze 狀態');
   }
 });
+
+test('genName：C.LANG=en 時產生英文名字（首字大寫、其餘小寫、同輩不重複）', () => {
+  const originalLang = C.LANG;
+  C.LANG = 'en';
+  try {
+    const rng = rngFactory(50);
+    const world = Sim.newWorld(rng);
+    for (const c of world.creatures) {
+      assert.match(c.name, /^[A-Z][a-z]+$/, `name=${c.name} 應符合英文命名格式`);
+    }
+    const names = new Set(world.creatures.map((c) => c.name));
+    assert.strictEqual(names.size, C.FOUNDER_COUNT, '同輩英文名字不應重複');
+  } finally {
+    if (originalLang === undefined) delete C.LANG; else C.LANG = originalLang;
+  }
+});
+
+test('genName：C.LANG 缺值（或非 en）維持中文疊字命名，不受英文模式影響', () => {
+  const originalLang = C.LANG;
+  delete C.LANG;
+  try {
+    const rng = rngFactory(51);
+    const world = Sim.newWorld(rng);
+    for (const c of world.creatures) {
+      assert.ok(!/^[A-Z][a-z]+$/.test(c.name), `name=${c.name} 不應是英文命名格式`);
+      assert.strictEqual(c.name.length, 2, '中文名字應是兩個疊字組成');
+    }
+  } finally {
+    if (originalLang === undefined) delete C.LANG; else C.LANG = originalLang;
+  }
+});

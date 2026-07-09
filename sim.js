@@ -8,14 +8,25 @@ const Sim = {};
   const Genetics = (typeof module !== 'undefined' && module.exports) ? require('./genetics.js') : window.Genetics;
 
   const SYLLABLES = ['波', '嚕', '糰', '咪', '豆', '蹦', '噗', '拉', '奇', '可', '妞', '皮', '塔', '米', '歐', '嘟'];
+  const SYLLABLES_EN = ['bo', 'mi', 'lu', 'pi', 'ta', 'po', 'ni', 'ke', 'ru', 'do', 'fa', 'zi', 'wa', 'ko', 'na', 'tu'];
 
   function randRange(rng, lo, hi) { return lo + rng() * (hi - lo); }
 
+  function genNameZh(rng) {
+    return SYLLABLES[Math.floor(rng() * SYLLABLES.length)] + SYLLABLES[Math.floor(rng() * SYLLABLES.length)];
+  }
+  function genNameEn(rng) {
+    const syllableCount = rng() < 0.5 ? 2 : 3;
+    let raw = '';
+    for (let i = 0; i < syllableCount; i++) raw += SYLLABLES_EN[Math.floor(rng() * SYLLABLES_EN.length)];
+    return raw.charAt(0).toUpperCase() + raw.slice(1);
+  }
   function genName(world, rng) {
     const existing = new Set(world.creatures.map((c) => c.name));
+    const lang = C.LANG || 'zh';
     let name, guard = 0;
     do {
-      name = SYLLABLES[Math.floor(rng() * SYLLABLES.length)] + SYLLABLES[Math.floor(rng() * SYLLABLES.length)];
+      name = lang === 'en' ? genNameEn(rng) : genNameZh(rng);
       guard++;
     } while (existing.has(name) && guard < 200);
     return name;
