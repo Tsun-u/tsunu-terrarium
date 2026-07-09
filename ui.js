@@ -985,6 +985,7 @@ const UI = {};
       ? ['meteor', 'firefly', 'gift', 'nap', 'petals', 'reflect']
       : ['butterfly', 'rainbow', 'gift', 'nap', 'petals', 'chase', 'reflect'];
     let kind = pool[Math.floor(Math.random() * pool.length)];
+    if (kind === 'meteor' && Math.random() < 0.3) kind = 'shower';   // 30% 升級成流星雨
     if (kind === 'nap') {
       // 找一對已經靠近的孩子一起打盹；找不到就換蝴蝶/螢火蟲
       const alive = W.creatures.filter(c => c.stage !== 'egg' && c.stage !== 'star');
@@ -1017,9 +1018,10 @@ const UI = {};
       }
     } else if (kind !== 'nap') Render.playAmbient(kind, W);
     if (window.Audio2) Audio2.eventSound(kind);
-    W.hearts += 2;
+    const gain = kind === 'shower' ? 5 : 2;   // 流星雨是難得的大場面
+    W.hearts += gain;
     updateHearts();
-    floatHeart(window.innerWidth - 90, 40, '+2');
+    floatHeart(window.innerWidth - 90, 40, '+' + gain);
   }
 
   /* ---------- 事件反應 ---------- */

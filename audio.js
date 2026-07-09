@@ -80,6 +80,7 @@ const Audio2 = {};
   /* ---------- 事件音 ---------- */
   const EVENT_MOTIFS = {
     family:    () => { [659, 784, 988, 1319].forEach((f, i) => tone(f, 0.35, 'triangle', 0.5, i * 0.14)); },
+    shower:    () => { for (let i = 0; i < 8; i++) tone(1980 - i * 170, 0.5, 'sine', 0.26, i * 0.24, 1450 - i * 130); },
     butterfly: () => { [880, 1108, 1318].forEach((f, i) => tone(f, 0.18, 'sine', 0.4, i * 0.12)); },
     rainbow:   () => { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.3, 'triangle', 0.35, i * 0.15)); },
     meteor:    () => tone(2400, 0.7, 'sine', 0.35, 0, 500),

@@ -452,6 +452,17 @@ const Render = {};
       };
     } else if (kind === 'reflect') {
       ambients.push({ kind, start: now, dur: 11000, data: { seed: Math.floor(rnd() * 100) } });
+    } else if (kind === 'shower') {
+      // 流星雨：預先排好二三十顆的出場時刻，偶有亮大顆
+      const meteors = [];
+      let acc = 600;
+      const count = 24 + Math.floor(rnd() * 12);
+      for (let i = 0; i < count; i++) {
+        meteors.push({ delay: acc, x0: rnd() * C.WORLD_W * 1.05 - C.WORLD_W * 0.02,
+          y0: 2 + rnd() * C.SKY_H * 0.45, spd: 0.8 + rnd() * 0.7, big: rnd() < 0.15 });
+        acc += 250 + rnd() * 600;
+      }
+      ambients.push({ kind, start: now, dur: acc + 1600, data: { meteors } });
     } else if (kind === 'fish') {
       // 池塘跳魚：從水面躍出的小拋物線＋入水水花
       ambients.push({ kind, start: now, dur: 1500, data: {
@@ -487,6 +498,19 @@ const Render = {};
         for (let k = 0; k < 7; k++) {
           ctx.fillStyle = `rgba(255,255,235,${(1 - t) * (1 - k / 7)})`;
           ctx.fillRect(Math.round(mx - k * 2.2), Math.round(my - k * 0.95), 2, 1);
+        }
+      } else if (a.kind === 'shower') {
+        for (const m of a.data.meteors) {
+          const mt = (tMs - a.start - m.delay) / 1000;
+          if (mt < 0 || mt > 1.3) continue;
+          const mx = m.x0 + mt * C.WORLD_W * 0.22 * m.spd;
+          const my = m.y0 + mt * C.SKY_H * 0.6 * m.spd;
+          if (my > C.SKY_H + 4) continue;
+          const trail = m.big ? 10 : 6, w = m.big ? 2 : 1;
+          for (let k = 0; k < trail; k++) {
+            ctx.fillStyle = `rgba(255,255,235,${(1 - mt / 1.3) * (1 - k / trail)})`;
+            ctx.fillRect(Math.round(mx - k * 2.2), Math.round(my - k * 0.95), w, 1);
+          }
         }
       } else if (a.kind === 'rainbow') {
         const bands = ['255,120,120', '255,190,110', '255,240,140', '150,220,150', '130,180,240', '190,150,230'];
