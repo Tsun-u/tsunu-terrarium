@@ -709,9 +709,14 @@ const Render = {};
     ctx.drawImage(sp, x, y);
     // 睡覺 zzz
     if (cr.action === 'sleep' && cr.stage !== 'egg') {
-      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      // 打盹 Zzz：3×3 迷你像素 Z 一顆顆往右上冒（白點太抽象，實玩看不懂）
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
       const zp = Math.floor(tMs / 600) % 3;
-      for (let i = 0; i <= zp; i++) ctx.fillRect(x + sp.width + 1 + i * 2, y - 2 - i * 3, 1 + (i === 2 ? 1 : 0), 1);
+      const Z = [[0, 0], [1, 0], [2, 0], [1, 1], [0, 2], [1, 2], [2, 2]];
+      for (let i = 0; i <= zp; i++) {
+        const zx = x + sp.width + 1 + i * 3, zy = y - 5 - i * 4;
+        for (const [dx, dy] of Z) ctx.fillRect(zx + dx, zy + dy, 1, 1);
+      }
     }
     if (cr.action === 'gaze') {
       // 老年看天空：視線方向的小星光緩緩閃爍
