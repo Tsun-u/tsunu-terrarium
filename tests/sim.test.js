@@ -1,6 +1,8 @@
 // tests/sim.test.js（node --test；Sim 以 dual export 提供，rng 一律注入 rngFactory(seed) 保證可重現）
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
 const { C, rngFactory } = require('../contract.js');
 const Genetics = require('../genetics.js');
 const Sim = require('../sim.js');
@@ -700,4 +702,25 @@ test('喪偶續弦：清除 partnerId 後，該個體可與新對象相遇成家
   assert.strictEqual(b.partnerId, newMate.id, '喪偶解除婚姻關係後，同一輪 meetAndPair 應能與新對象成家');
   assert.strictEqual(newMate.partnerId, b.id);
   assert.ok(events.some((e) => e.type === 'family' && e.ids.includes(b.id) && e.ids.includes(newMate.id)));
+});
+
+// ---- genName 音節池擴充：實玩回饋名字重複率偏高（2026-07-10）----
+
+test('genName 音節池：中英文都擴充到至少 32 個、且無重複，降低長期重複觀感', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'sim.js'), 'utf8');
+  const zhList = src.match(/const SYLLABLES = \[([\s\S]*?)\];/)[1].match(/'[^']+'/g).map((s) => s.slice(1, -1));
+  const enList = src.match(/const SYLLABLES_EN = \[([\s\S]*?)\];/)[1].match(/'[^']+'/g).map((s) => s.slice(1, -1));
+  assert.ok(zhList.length >= 32, `中文音節池應至少 32 個，目前 ${zhList.length} 個`);
+  assert.ok(enList.length >= 32, `英文音節池應至少 32 個，目前 ${enList.length} 個`);
+  assert.strictEqual(new Set(zhList).size, zhList.length, '中文音節池不應有重複字');
+  assert.strictEqual(new Set(enList).size, enList.length, '英文音節池不應有重複音節');
+});
+
+test('genName 中文：大樣本取樣下，不同名字種類數應超過舊版 16 字音節池的組合上限（16×16=256 種）', () => {
+  const names = new Set();
+  for (let seed = 100; seed < 600; seed++) {
+    const world = Sim.newWorld(rngFactory(seed));
+    for (const c of world.creatures) names.add(c.name);
+  }
+  assert.ok(names.size > 256, `500 world × 8 founder 取樣觀察到 ${names.size} 種不同名字，應高於舊版音節池 256 種組合上限，代表音節池已擴充`);
 });

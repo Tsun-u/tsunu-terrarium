@@ -7,8 +7,14 @@ const Sim = {};
   const { C } = ctx;
   const Genetics = (typeof module !== 'undefined' && module.exports) ? require('./genetics.js') : window.Genetics;
 
-  const SYLLABLES = ['波', '嚕', '糰', '咪', '豆', '蹦', '噗', '拉', '奇', '可', '妞', '皮', '塔', '米', '歐', '嘟'];
-  const SYLLABLES_EN = ['bo', 'mi', 'lu', 'pi', 'ta', 'po', 'ni', 'ke', 'ru', 'do', 'fa', 'zi', 'wa', 'ko', 'na', 'tu'];
+  const SYLLABLES = [
+    '波', '嚕', '糰', '咪', '豆', '蹦', '噗', '拉', '奇', '可', '妞', '皮', '塔', '米', '歐', '嘟',
+    '糖', '丸', '圓', '球', '毛', '胖', '乖', '寶', '貝', '朵', '泡', '糯', '丹', '桃', '莓', '諾',
+  ];
+  const SYLLABLES_EN = [
+    'bo', 'mi', 'lu', 'pi', 'ta', 'po', 'ni', 'ke', 'ru', 'do', 'fa', 'zi', 'wa', 'ko', 'na', 'tu',
+    'lo', 'ma', 'su', 'ki', 'ra', 'mo', 've', 'yu', 'ha', 'to', 'nu', 'sa', 'we', 'go', 'ju', 'xi',
+  ];
 
   function randRange(rng, lo, hi) { return lo + rng() * (hi - lo); }
 
