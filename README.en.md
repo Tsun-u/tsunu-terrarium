@@ -22,6 +22,8 @@ Every new bottle begins with an opening ceremony:
 - Life cycle: egg (it wobbles!) → child (a little dot; after six hours its **shape is revealed**) → adult → elder (walks slowly, sometimes stops to gaze at the sky) → gently floats up into the night sky and **becomes a star** — tap a star in the sky to see which child it was
 - When two single adults keep running into each other, they may **tie the knot**: a red string lights up, hearts fountain out, wedding chimes ring. The more often they meet, the more likely it happens
 - Married couples wander together and daydream side by side; young children stay close to their parents
+- If one partner becomes a star first, a not-yet-elderly widow may **find new love someday**; elders keep their memories and grow old faithfully
+- Place playground gear and they'll play on their own: children ride the swing, climb the slide and whoosh down, pairs ride the seesaw, daytime water fights by the pond, strolls across the bridge — and at night a mischievous kid may sneak over to flick the stone lantern on and off
 - Lifespan is 4–7 days (real time). The world keeps running while you're away (up to 72 hours are simulated), and a picture summary of "while you were gone…" greets you when you return
 
 ## Interactions
@@ -40,7 +42,7 @@ Every new bottle begins with an opening ceremony:
 | Button | Function |
 |---|---|
 | 🌳 | Family tree: generations with parent-child lines |
-| 🛍️ | Heart shop: 🍎 life extension (gets pricier per creature), 🧵 matchmaker's red string (pair up two singles), flowers / stone lantern (glows at night) / swing / bridge / pond upgrade |
+| 🛍️ | Heart shop: 🍎 life extension (gets pricier per creature), 🧵 matchmaker's red string (pair up two singles), flowers / stone lantern (glows at night) / seesaw / swing / slide / bridge (auto-widens to span the pond) / pond upgrade |
 | 🫙 | Bottle manager: switch between terrariums, start a new one, ⬇️⬆️ export/import saves, ☁️ Google Drive sync |
 | ▶ | Time speed: 1× / 2× / 5× / 10× — the impatient get to see a whole life too |
 | ⭐ | Star gallery: every child who became a star |

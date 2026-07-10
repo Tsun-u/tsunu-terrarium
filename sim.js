@@ -256,6 +256,15 @@ const Sim = {};
         events.push({ type: 'starred', ids: [c.id] });
         world.hearts += C.HEART_STAR;
         toRemove.push(c.id);
+        // 喪偶續弦：伴侶還沒進入老年期時解除婚姻關係，讓 TA 能重新配對；伴侶已是 elder 則維持原狀不再配對
+        if (c.partnerId != null) {
+          const widow = findCreature(world, c.partnerId);
+          if (widow && widow.stage === 'adult') {
+            widow.partnerId = null;
+            widow.nextEggTick = null;
+            widow.meetCounts = {};
+          }
+        }
       }
     }
 

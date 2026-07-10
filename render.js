@@ -208,8 +208,35 @@ const Render = {};
   const decorCache = new Map();
   let scenePondBig = false;
 
+  // 橋的畫法獨立成參數化函式：世界裡要跨得過池塘（含擴建版），商店縮圖用固定小版
+  function bridgeSprite(span) {
+    const A = Math.max(3, Math.round(span * 0.11));   // 拱高隨跨距等比
+    const cv = document.createElement('canvas');
+    cv.width = span; cv.height = A + 8;
+    const s = cv.getContext('2d');
+    // 橋面頂端 y：沿正弦拱線
+    const deck = x => (A + 5) - Math.round(A * Math.sin(Math.PI * Math.min(1, (x + 1) / span)));
+    s.fillStyle = '#a8794f';
+    for (let x = 0; x < span; x += 2) s.fillRect(x, deck(x), 2, 3);          // 橋面板
+    s.fillStyle = '#8a5f3a';
+    for (let x = 1; x < span; x += 8) s.fillRect(x, deck(x) - 4, 1, 4);      // 欄杆柱（固定高度站橋面上）
+    s.fillStyle = '#c79868';
+    for (let x = 0; x < span; x += 2) s.fillRect(x, deck(x) - 5, 2, 1);      // 扶手（與橋面平行的拱線）
+    return cv;
+  }
+
   function decorSprite(kind, tMs) {
     if (kind === 'swing') return swingSprite(tMs);   // 鞦韆會微擺，不快取
+    if (kind === 'seesaw') return seesawSprite(tMs); // 翹翹板持續蹺動，不快取
+    if (kind === 'bridge') {
+      // 橋寬＝池塘直徑＋兩端搭岸 12px；池塘擴建時用另一個快取鍵，自動換加寬版
+      const key = scenePondBig ? 'bridgeBig' : 'bridge';
+      if (!decorCache.has(key)) {
+        const cv = bridgeSprite((scenePondBig ? 40 : 26) * 2 + 12);
+        decorCache.set(key, withOutline(cv, avgLum(cv)));
+      }
+      return decorCache.get(key);
+    }
     if (decorCache.has(kind)) return decorCache.get(kind);
     const cv = document.createElement('canvas');
     const s = cv.getContext('2d');
@@ -229,23 +256,46 @@ const Render = {};
       s.fillStyle = '#77828e'; s.fillRect(2, 3, 6, 5);         // 燈室
       s.fillStyle = '#ffe9a8'; s.fillRect(3, 4, 4, 3);         // 燈芯
       s.fillStyle = '#aab6c2'; s.fillRect(1, 1, 8, 2); s.fillRect(3, 0, 4, 1);  // 頂
-    } else if (kind === 'bridge') {
-      cv.width = 26; cv.height = 11;
-      s.fillStyle = '#a8794f';
-      for (let x = 0; x < 26; x += 2) {
-        const arch = Math.round(3 * Math.sin(Math.PI * (x + 1) / 26));
-        s.fillRect(x, 6 - arch, 2, 3);
-      }
+    } else if (kind === 'slide') {
+      // 溜滑梯：右邊爬梯上平台，滑道往左下俯衝（滑道座標與 ui.js 的滑落路徑對齊）
+      cv.width = 26; cv.height = 20;
       s.fillStyle = '#8a5f3a';
-      for (let x = 0; x < 26; x += 6) {
-        const arch = Math.round(3 * Math.sin(Math.PI * (x + 1) / 26));
-        s.fillRect(x, 3 - arch, 1, 3 + arch);                  // 欄杆
+      s.fillRect(20, 5, 2, 15); s.fillRect(24, 5, 2, 15);      // 梯柱
+      for (let y = 7; y <= 16; y += 3) s.fillRect(21, y, 4, 1); // 梯橫檔
+      s.fillStyle = '#c79868'; s.fillRect(15, 3, 11, 2);        // 平台
+      s.fillStyle = '#c9c2b8';
+      for (let i = 0; i <= 15; i++) {
+        const y = Math.round(4 + i * 14 / 15);                  // 滑道面：平台左緣滑到左下
+        s.fillRect(15 - i, y, 2, 2);
       }
-      s.fillStyle = '#c79868'; s.fillRect(0, 2, 26, 1);        // 扶手
+      s.fillStyle = '#aab6c2';
+      for (let i = 0; i <= 15; i++) {
+        const y = Math.round(4 + i * 14 / 15);
+        s.fillRect(15 - i, y + 2, 2, 1);                        // 滑道底沿（增厚立體感）
+      }
     }
     const outlined = withOutline(cv, avgLum(cv));   // 裝飾同享自適應外框，不溶進草地
     decorCache.set(kind, outlined);
     return outlined;
+  }
+
+  // 翹翹板：板子沿支點持續蹺動；相位源 tMs/700 與 ui.js 乘客座位同步
+  function seesawSprite(tMs) {
+    const cv = document.createElement('canvas');
+    cv.width = 26; cv.height = 12;
+    const s = cv.getContext('2d');
+    const tilt = Math.sin(tMs / 700) * 3;
+    s.fillStyle = '#8a5f3a';
+    s.fillRect(11, 7, 4, 5); s.fillRect(12, 5, 2, 2);           // 支點座
+    s.fillStyle = '#c79868';
+    for (let x = 0; x < 26; x += 2) {
+      const y = Math.round(6 + tilt - (x / 24) * tilt * 2);     // 板：左端 6+tilt → 右端 6-tilt
+      s.fillRect(x, y, 2, 2);
+    }
+    s.fillStyle = '#8a5f3a';
+    s.fillRect(2, Math.round(6 + tilt) - 2, 1, 2);              // 左把手
+    s.fillRect(23, Math.round(6 - tilt) - 2, 1, 2);             // 右把手
+    return withOutline(cv, avgLum(cv));
   }
 
   function swingSprite(tMs) {
@@ -333,8 +383,15 @@ const Render = {};
     }
   }
 
-  // 商店縮圖用
-  Render.decorThumb = kind => decorSprite(kind, 0);
+  // 商店縮圖用（橋例外：世界版會跟池塘一樣寬，縮圖固定用小版才不會撐爆商店列）
+  Render.decorThumb = kind => {
+    if (kind !== 'bridge') return decorSprite(kind, 0);
+    if (!decorCache.has('bridgeThumb')) {
+      const cv = bridgeSprite(26);
+      decorCache.set('bridgeThumb', withOutline(cv, avgLum(cv)));
+    }
+    return decorCache.get('bridgeThumb');
+  };
 
   /* ---------- 選取光圈（月老／延壽選人模式） ---------- */
 

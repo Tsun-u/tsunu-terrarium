@@ -1191,6 +1191,171 @@ const UI = {};
     setTimeout(() => { trySplash(); splashLoop(); }, 50000 + Math.random() * 60000);
   }
 
+  /* ---------- 過橋散步（誰都能走：晃到橋頭、慢慢走過去，另一端下橋） ---------- */
+
+  let crossing = false;
+  function tryCross() {
+    if (!W || document.hidden || crossing) return;
+    const bridge = (W.decor || []).find(d => d.kind === 'bridge');
+    const free = W.creatures.filter(c =>
+      c.stage !== 'egg' && c.stage !== 'star' && !busyIds.has(c.id));
+    if (!bridge || !free.length || Math.random() < 0.4) return;
+    const c0 = free[Math.floor(Math.random() * free.length)];
+    // 橋的半寬跟 render 同一條式子（池塘直徑＋搭岸 12px 的一半），起點在橋頭、終點過橋再走一小段
+    const half = (((W.decor || []).some(d => d.kind === 'pond') ? 40 : 26) * 2 + 12) / 2;
+    const dir = Math.random() < 0.5 ? 1 : -1;
+    const from = { x: bridge.x - dir * (half - 2), y: bridge.y + 1 };
+    const to = { x: bridge.x + dir * (half + 6), y: bridge.y + 2 };
+    crossing = true; busyIds.add(c0.id);
+    const st = { phase: 'walk', until: Date.now() + 30000 };
+    const iv = setInterval(() => {
+      const c = W.creatures.find(x => x.id === c0.id);
+      const br = (W.decor || []).find(d => d.kind === 'bridge');
+      if (!c || !br || Date.now() > st.until) {
+        crossing = false; busyIds.delete(c0.id); clearInterval(iv); return;   // 橋被收走/超時 → 收工
+      }
+      const target = st.phase === 'walk' ? from : to;
+      const d = Math.hypot(c.x - target.x, c.y - target.y) || 1;
+      if (d < 4) {
+        if (st.phase === 'walk') {
+          st.phase = 'cross'; st.until = Date.now() + 20000;
+        } else {
+          crossing = false; busyIds.delete(c0.id); clearInterval(iv); return; // 過完橋，散步結束
+        }
+      } else if (st.phase === 'cross') {
+        // 橋上：水平慢走，y 直接貼橋面拱線（跟 bridgeSprite 同一條 sin），走出「上橋翻過拱頂」
+        c.action = 'walk'; c.actionUntil = W.tick + 4;
+        c.vx = (target.x > c.x ? 1 : -1) * C.WALK_SPEED_MAX * 0.55;
+        c.vy = 0;
+        const arch = ((W.decor || []).some(dd => dd.kind === 'pond') ? 10 : 7);
+        const t = Math.min(1, Math.max(0, (c.x - (br.x - half)) / (half * 2)));
+        c.y = br.y - 1 - arch * Math.sin(Math.PI * t);
+      } else {
+        c.action = 'walk'; c.actionUntil = W.tick + 4;
+        c.vx = (target.x - c.x) / d * C.WALK_SPEED_MAX * 0.8;
+        c.vy = (target.y - c.y) / d * C.WALK_SPEED_MAX * 0.8;
+      }
+    }, 250);
+  }
+  function crossLoop() {
+    setTimeout(() => { tryCross(); crossLoop(); }, 35000 + Math.random() * 55000);
+  }
+
+  /* ---------- 溜滑梯（幼體限定：爬梯上平台、咻一聲滑下來，玩上癮會再排隊） ---------- */
+
+  let sliding = null;
+  function trySlide() {
+    if (!W || document.hidden || sliding) return;
+    const slide = (W.decor || []).find(d => d.kind === 'slide');
+    const kids = W.creatures.filter(c => c.stage === 'child' && !busyIds.has(c.id));
+    if (!slide || !kids.length || Math.random() < 0.3) return;
+    const kid = kids[Math.floor(Math.random() * kids.length)];
+    sliding = { id: kid.id };
+    busyIds.add(kid.id);
+    // 座標對齊 render.js 的 slide sprite（26×20 加外框置中畫在 d.y 上緣）
+    const pos = d => ({
+      base: { x: d.x + 10, y: d.y + 1 },     // 梯腳
+      top: { x: d.x + 10, y: d.y - 16 },     // 梯頂
+      rampTop: { x: d.x + 3, y: d.y - 15 },  // 平台滑道口
+      rampBot: { x: d.x - 13, y: d.y + 1 },  // 滑道底
+    });
+    const st = { phase: 'walk', p: 0, rounds: 1 + Math.floor(Math.random() * 2), until: Date.now() + 45000 };
+    const iv = setInterval(() => {
+      const c = W.creatures.find(x => x.id === kid.id);
+      const sl = (W.decor || []).find(d => d.kind === 'slide');
+      if (!c || !sl || c.stage !== 'child' || Date.now() > st.until) {
+        sliding = null; busyIds.delete(kid.id); clearInterval(iv); return;   // 滑梯被收走/長大/超時
+      }
+      const P = pos(sl);
+      if (st.phase === 'walk') {
+        const d = Math.hypot(c.x - P.base.x, c.y - P.base.y) || 1;
+        if (d < 4) { st.phase = 'climb'; st.p = 0; }
+        else {
+          c.action = 'walk'; c.actionUntil = W.tick + 4;
+          c.vx = (P.base.x - c.x) / d * C.WALK_SPEED_MAX * 0.8;
+          c.vy = (P.base.y - c.y) / d * C.WALK_SPEED_MAX * 0.8;
+        }
+      } else if (st.phase === 'climb') {
+        // 手腳並用往上爬（等速），到頂後挪到滑道口
+        c.action = 'idle'; c.actionUntil = W.tick + 4; c.vx = 0; c.vy = 0;
+        st.p = Math.min(1, st.p + 250 / 1750);
+        c.x = P.base.x; c.y = P.base.y + (P.top.y - P.base.y) * st.p;
+        if (st.p >= 1) { st.phase = 'whee'; st.p = 0; }
+      } else if (st.phase === 'whee') {
+        // 咻——加速滑落（p^1.7 模擬重力），到底彈一小下
+        c.action = 'idle'; c.actionUntil = W.tick + 4; c.vx = 0; c.vy = 0;
+        st.p = Math.min(1, st.p + 250 / 1000);
+        const e = Math.pow(st.p, 1.7);
+        c.x = P.rampTop.x + (P.rampBot.x - P.rampTop.x) * e;
+        c.y = P.rampTop.y + (P.rampBot.y - P.rampTop.y) * e;
+        if (st.p >= 1) {
+          c.y -= 2;                                  // 落地小彈跳
+          if (--st.rounds > 0) st.phase = 'walk';    // 太好玩了，再來一次！
+          else { sliding = null; busyIds.delete(kid.id); clearInterval(iv); }
+        }
+      }
+    }, 250);
+  }
+  function slideLoop() {
+    setTimeout(() => { trySlide(); slideLoop(); }, 25000 + Math.random() * 40000);
+  }
+
+  /* ---------- 翹翹板（兩隻對坐，跟板子同一條 sin 一上一下） ---------- */
+
+  let seesawing = false;
+  function trySeesaw() {
+    if (!W || document.hidden || seesawing) return;
+    const seesaw = (W.decor || []).find(d => d.kind === 'seesaw');
+    // 幼體優先湊對，不夠就大小同樂（親子蹺蹺板）
+    const free = W.creatures.filter(c =>
+      c.stage !== 'egg' && c.stage !== 'star' && !busyIds.has(c.id));
+    const kids = free.filter(c => c.stage === 'child');
+    const pair = [...kids, ...free.filter(c => c.stage !== 'child')].slice(0, 2);
+    if (!seesaw || pair.length < 2 || Math.random() < 0.35) return;
+    const [a, b] = pair;
+    seesawing = true; busyIds.add(a.id); busyIds.add(b.id);
+    const st = { phase: 'walk', until: Date.now() + 40000 };   // 兩隻可能從地圖兩端來，給足集合時間
+    const iv = setInterval(() => {
+      const ca = W.creatures.find(x => x.id === a.id);
+      const cb = W.creatures.find(x => x.id === b.id);
+      const ss = (W.decor || []).find(d => d.kind === 'seesaw');
+      if (!ca || !cb || !ss || Date.now() > st.until) {
+        seesawing = false; busyIds.delete(a.id); busyIds.delete(b.id); clearInterval(iv); return;
+      }
+      const seatL = { x: ss.x - 11, y: ss.y - 2 };
+      const seatR = { x: ss.x + 11, y: ss.y - 2 };
+      if (st.phase === 'walk') {
+        let both = true;
+        [[ca, seatL], [cb, seatR]].forEach(([c, s]) => {
+          const d = Math.hypot(c.x - s.x, c.y - s.y) || 1;
+          if (d >= 4) {
+            both = false;
+            c.action = 'walk'; c.actionUntil = W.tick + 4;
+            c.vx = (s.x - c.x) / d * C.WALK_SPEED_MAX * 0.8;
+            c.vy = (s.y - c.y) / d * C.WALK_SPEED_MAX * 0.8;
+          }
+        });
+        if (both) st.until = Date.now() + 14000 + Math.random() * 8000;   // 蹺 14~22 秒
+        if (both) st.phase = 'ride';
+      } else {
+        // 相位源與 seesawSprite 同一條 tMs/700 → 人板同步，一上一下
+        const tilt = Math.sin(performance.now() / 700) * 3;
+        [[ca, seatL, +1], [cb, seatR, -1]].forEach(([c, s, dir]) => {
+          c.action = 'idle'; c.actionUntil = W.tick + 4; c.vx = 0; c.vy = 0;
+          c.x = s.x;
+          c.y = ss.y - 8 + tilt * dir;
+        });
+      }
+    }, 250);
+  }
+  function seesawLoop() {
+    setTimeout(() => { trySeesaw(); seesawLoop(); }, 30000 + Math.random() * 40000);
+  }
+
+  // 除錯把手：console 手動觸發佈景互動（仍受各自的前置條件與機率閘門約束）
+  UI.debugPlay = { tryPlaytime, tryPrank, trySplash, tryCross, trySlide, trySeesaw,
+    world: () => W, busy: () => [...busyIds] };
+
   /* ---------- 池塘跳魚（小驚喜，不進事件排程、無 ❤） ---------- */
 
   function fishLoop() {
@@ -1277,6 +1442,9 @@ const UI = {};
     fishLoop();
     prankLoop();
     splashLoop();
+    crossLoop();
+    slideLoop();
+    seesawLoop();
   };
 })();
 

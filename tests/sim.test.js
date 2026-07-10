@@ -636,3 +636,68 @@ test('genName：C.LANG 缺值（或非 en）維持中文疊字命名，不受英
     if (originalLang === undefined) delete C.LANG; else C.LANG = originalLang;
   }
 });
+
+// ---- 喪偶續弦：伴侶化星時，未到老年期的一方應解除婚姻關係、可重新配對 ----
+
+test('喪偶續弦：伴侶還是 adult 時，一方化星後清除其 partnerId/nextEggTick/meetCounts，可重新配對', () => {
+  const rng = rngFactory(60);
+  const world = Sim.newWorld(rng);
+  const [a, b] = world.creatures;
+  world.creatures.forEach((c) => {
+    if (c !== a && c !== b) { c.x = -1000; c.y = -1000; } // 避免其他 founder 這輪剛好跟 b 相遇配對，干擾斷言
+  });
+  a.partnerId = b.id; b.partnerId = a.id;
+  a.stage = 'elder'; a.elderTick = world.tick - 1; a.starTick = world.tick; // 這次 tick 直接化星
+  b.stage = 'adult'; b.elderTick = world.tick + 999999; b.starTick = world.tick + 9999999; // b 遠離老年期
+  b.nextEggTick = world.tick + 500; // 婚後殘留的生蛋排程，驗證會被清除
+  b.meetCounts = { 999: 3 }; // 婚後殘留的好感度紀錄，驗證會被清空
+
+  const heartsBefore = world.hearts;
+  const events = Sim.tick(world, rng);
+
+  assert.strictEqual(a.stage, 'star');
+  assert.ok(!world.creatures.includes(a), '化星的一方應移出在世名單');
+  assert.ok(events.some((e) => e.type === 'starred' && e.ids.includes(a.id)));
+  assert.strictEqual(world.hearts, heartsBefore + C.HEART_STAR);
+
+  assert.strictEqual(b.partnerId, null, '伴侶還是 adult，喪偶後應解除婚姻關係、可重新配對');
+  assert.strictEqual(b.nextEggTick, null, '不再有伴侶，應清除生蛋排程');
+  assert.deepStrictEqual(b.meetCounts, {}, '應重新開始累積好感度紀錄');
+});
+
+test('喪偶不續弦：伴侶已進入老年期時，一方化星後 partnerId 維持原狀，不會被視為可配對', () => {
+  const rng = rngFactory(61);
+  const world = Sim.newWorld(rng);
+  const [a, b] = world.creatures;
+  world.creatures.forEach((c) => {
+    if (c !== a && c !== b) { c.x = -1000; c.y = -1000; }
+  });
+  a.partnerId = b.id; b.partnerId = a.id;
+  a.stage = 'elder'; a.elderTick = world.tick - 1; a.starTick = world.tick; // 這次 tick 直接化星
+  b.stage = 'elder'; b.elderTick = world.tick - 1; b.starTick = world.tick + 999999; // b 已是老年期，但還不到化星
+
+  Sim.tick(world, rng);
+
+  assert.strictEqual(a.stage, 'star');
+  assert.strictEqual(b.partnerId, a.id, '伴侶已是 elder，喪偶後應維持已婚狀態，不再配對');
+});
+
+test('喪偶續弦：清除 partnerId 後，該個體可與新對象相遇成家', () => {
+  const rng0 = () => 0; // 永遠回傳 0，必定小於任何機率門檻
+  const world = Sim.newWorld(rng0);
+  const [a, b, newMate] = world.creatures;
+  world.creatures.forEach((c) => {
+    if (c !== a && c !== b && c !== newMate) { c.x = -1000; c.y = -1000; }
+  });
+  a.partnerId = b.id; b.partnerId = a.id;
+  a.stage = 'elder'; a.elderTick = world.tick - 1; a.starTick = world.tick; // 這次 tick 化星，b 喪偶
+  b.stage = 'adult'; b.elderTick = world.tick + 999999; b.starTick = world.tick + 9999999;
+  b.x = 100; b.y = 80;
+  newMate.partnerId = null; newMate.x = 100; newMate.y = 80; // 與 b 同位置，喪偶後同一 tick 內即可相遇
+
+  const events = Sim.tick(world, rng0);
+
+  assert.strictEqual(b.partnerId, newMate.id, '喪偶解除婚姻關係後，同一輪 meetAndPair 應能與新對象成家');
+  assert.strictEqual(newMate.partnerId, b.id);
+  assert.ok(events.some((e) => e.type === 'family' && e.ids.includes(b.id) && e.ids.includes(newMate.id)));
+});
