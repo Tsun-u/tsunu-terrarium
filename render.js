@@ -279,12 +279,27 @@ const Render = {};
     return outlined;
   }
 
-  // 翹翹板：板子沿支點持續蹺動；相位源 tMs/700 與 ui.js 乘客座位同步
+  // 翹翹板三態：有人玩=上下蹺（tMs/700 與 ui.js 乘客同步）、
+  // 一陣風=衰減擺動後停回原位、沒人玩=靜止（左端著地才像放著的蹺蹺板）
+  let seesawMotion = null;   // null | {mode:'ride'} | {mode:'breeze', start, until}
+  Render.setSeesawMotion = m => { seesawMotion = m; };
+  function seesawTilt(tMs) {
+    const m = seesawMotion;
+    if (m && m.mode === 'ride') return Math.sin(tMs / 700) * 3;
+    if (m && m.mode === 'breeze') {
+      const el = performance.now() - m.start;
+      const p = Math.min(1, el / (m.until - m.start));
+      if (p >= 1) { seesawMotion = null; return 3; }
+      return 3 * ((1 - p) * Math.cos(el / 250) + p);   // 全幅顫動衰減，收回左低
+    }
+    return 3;
+  }
+
   function seesawSprite(tMs) {
     const cv = document.createElement('canvas');
     cv.width = 26; cv.height = 12;
     const s = cv.getContext('2d');
-    const tilt = Math.sin(tMs / 700) * 3;
+    const tilt = seesawTilt(tMs);
     s.fillStyle = '#8a5f3a';
     s.fillRect(11, 7, 4, 5); s.fillRect(12, 5, 2, 2);           // 支點座
     s.fillStyle = '#c79868';

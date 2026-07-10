@@ -1170,6 +1170,10 @@ const UI = {};
             c.action = 'walk'; c.actionUntil = W.tick + 4;
             c.vx = (s.x - c.x) / d * C.WALK_SPEED_MAX * 0.8;
             c.vy = (s.y - c.y) / d * C.WALK_SPEED_MAX * 0.8;
+          } else {
+            // 先到的站定等玩伴（同翹翹板：放著不管會被 sim 拉去亂晃）
+            c.action = 'idle'; c.actionUntil = W.tick + 4;
+            c.vx = 0; c.vy = 0;
           }
         });
         if (both) {
@@ -1309,10 +1313,15 @@ const UI = {};
     // 幼體優先湊對，不夠就大小同樂（親子蹺蹺板）
     const free = W.creatures.filter(c =>
       c.stage !== 'egg' && c.stage !== 'star' && !busyIds.has(c.id));
-    const kids = free.filter(c => c.stage === 'child');
-    const pair = [...kids, ...free.filter(c => c.stage !== 'child')].slice(0, 2);
+    const shuffle = arr => arr.sort(() => Math.random() - 0.5);
+    const kids = shuffle(free.filter(c => c.stage === 'child'));
+    const pair = [...kids, ...shuffle(free.filter(c => c.stage !== 'child'))].slice(0, 2);
     if (!seesaw || pair.length < 2 || Math.random() < 0.35) return;
-    const [a, b] = pair;
+    let [a, b] = pair;
+    // 座位按遠近分配（總路程最短），避免兩隻交叉走位互撞
+    const dxL = x => Math.hypot(x.x - (seesaw.x - 11), x.y - (seesaw.y - 2));
+    const dxR = x => Math.hypot(x.x - (seesaw.x + 11), x.y - (seesaw.y - 2));
+    if (dxL(a) + dxR(b) > dxR(a) + dxL(b)) [a, b] = [b, a];   // a 坐左、b 坐右
     seesawing = true; busyIds.add(a.id); busyIds.add(b.id);
     const st = { phase: 'walk', until: Date.now() + 40000 };   // 兩隻可能從地圖兩端來，給足集合時間
     const iv = setInterval(() => {
@@ -1320,7 +1329,9 @@ const UI = {};
       const cb = W.creatures.find(x => x.id === b.id);
       const ss = (W.decor || []).find(d => d.kind === 'seesaw');
       if (!ca || !cb || !ss || Date.now() > st.until) {
-        seesawing = false; busyIds.delete(a.id); busyIds.delete(b.id); clearInterval(iv); return;
+        seesawing = false; busyIds.delete(a.id); busyIds.delete(b.id); clearInterval(iv);
+        Render.setSeesawMotion(null);   // 人走了，板子停下來
+        return;
       }
       const seatL = { x: ss.x - 11, y: ss.y - 2 };
       const seatR = { x: ss.x + 11, y: ss.y - 2 };
@@ -1333,10 +1344,18 @@ const UI = {};
             c.action = 'walk'; c.actionUntil = W.tick + 4;
             c.vx = (s.x - c.x) / d * C.WALK_SPEED_MAX * 0.8;
             c.vy = (s.y - c.y) / d * C.WALK_SPEED_MAX * 0.8;
+          } else {
+            // 先到的站定等玩伴——不給指令的話 sim 會讓它亂晃，
+            // 晃出去又被拉回來，看起來像在座位前來回碰撞（實玩回饋）
+            c.action = 'idle'; c.actionUntil = W.tick + 4;
+            c.vx = 0; c.vy = 0;
           }
         });
-        if (both) st.until = Date.now() + 14000 + Math.random() * 8000;   // 蹺 14~22 秒
-        if (both) st.phase = 'ride';
+        if (both) {
+          st.until = Date.now() + 14000 + Math.random() * 8000;   // 蹺 14~22 秒
+          st.phase = 'ride';
+          Render.setSeesawMotion({ mode: 'ride' });               // 兩隻都坐好了，開始蹺
+        }
       } else {
         // 相位源與 seesawSprite 同一條 tMs/700 → 人板同步，一上一下
         const tilt = Math.sin(performance.now() / 700) * 3;
@@ -1350,6 +1369,17 @@ const UI = {};
   }
   function seesawLoop() {
     setTimeout(() => { trySeesaw(); seesawLoop(); }, 30000 + Math.random() * 40000);
+  }
+
+  // 偶爾一陣風，把沒人玩的翹翹板吹得晃幾下
+  function breezeLoop() {
+    setTimeout(() => {
+      if (W && !document.hidden && !seesawing && (W.decor || []).some(d => d.kind === 'seesaw')) {
+        const now = performance.now();
+        Render.setSeesawMotion({ mode: 'breeze', start: now, until: now + 2600 });
+      }
+      breezeLoop();
+    }, 45000 + Math.random() * 65000);
   }
 
   // 除錯把手：console 手動觸發佈景互動（仍受各自的前置條件與機率閘門約束）
@@ -1445,6 +1475,7 @@ const UI = {};
     crossLoop();
     slideLoop();
     seesawLoop();
+    breezeLoop();
   };
 })();
 
