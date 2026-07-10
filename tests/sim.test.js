@@ -724,3 +724,90 @@ test('genName 中文：大樣本取樣下，不同名字種類數應超過舊版
   }
   assert.ok(names.size > 256, `500 world × 8 founder 取樣觀察到 ${names.size} 種不同名字，應高於舊版音節池 256 種組合上限，代表音節池已擴充`);
 });
+
+// ---- load() 存量修復：喪偶續弦上線前就已存在的 dangling partnerId ----
+
+test('load 存量修復：舊存檔 adult 的 partnerId 指向已消失的 id（伴侶已化星）時，載入後應解除婚姻關係可再配', () => {
+  let store = {};
+  global.localStorage = {
+    getItem: (k) => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null),
+    setItem: (k, v) => { store[k] = String(v); },
+    removeItem: (k) => { delete store[k]; },
+  };
+  try {
+    const widow = {
+      id: 0, name: '波嚕', gen: 0, parents: null, partnerId: 999, // 999 不存在於 creatures，代表伴侶已化星
+      genes: Genetics.founderGenes(0),
+      bornTick: 0, matureTick: 0, elderTick: 999999, starTick: 1000000,
+      stage: 'adult', x: 100, y: 80, vx: 0, vy: 0, action: 'idle', actionUntil: 20,
+      nextEggTick: 500, lastPetTick: -1, starIdx: null, lifeBuys: 0, meetCounts: { 888: 2 },
+    };
+    const oldData = {
+      ver: 2, tick: 100, lastRealMs: Date.now(), hearts: 50, nextId: 1,
+      creatures: [widow], archive: [], decor: [], ownedDecor: [],
+    };
+    store[C.SAVE_KEY] = JSON.stringify(oldData);
+
+    const loaded = Sim.load();
+    assert.ok(loaded);
+    const c = loaded.world.creatures[0];
+    assert.strictEqual(c.partnerId, null, 'adult 喪偶（伴侶已化星消失）載入後應解除婚姻關係、可重新配對');
+    assert.strictEqual(c.nextEggTick, null, '應清除生蛋排程');
+    assert.deepStrictEqual(c.meetCounts, {}, '應重新開始累積好感度紀錄');
+  } finally {
+    delete global.localStorage;
+  }
+});
+
+test('load 存量修復：舊存檔 elder 的 partnerId 指向已消失的 id 時，載入後維持已婚狀態不變（守寡語意）', () => {
+  let store = {};
+  global.localStorage = {
+    getItem: (k) => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null),
+    setItem: (k, v) => { store[k] = String(v); },
+    removeItem: (k) => { delete store[k]; },
+  };
+  try {
+    const widow = {
+      id: 0, name: '波嚕', gen: 0, parents: null, partnerId: 999,
+      genes: Genetics.founderGenes(0),
+      bornTick: 0, matureTick: 0, elderTick: 0, starTick: 1000000,
+      stage: 'elder', x: 100, y: 80, vx: 0, vy: 0, action: 'idle', actionUntil: 20,
+      nextEggTick: null, lastPetTick: -1, starIdx: null, lifeBuys: 0, meetCounts: {},
+    };
+    const oldData = {
+      ver: 2, tick: 100, lastRealMs: Date.now(), hearts: 50, nextId: 1,
+      creatures: [widow], archive: [], decor: [], ownedDecor: [],
+    };
+    store[C.SAVE_KEY] = JSON.stringify(oldData);
+
+    const loaded = Sim.load();
+    assert.ok(loaded);
+    const c = loaded.world.creatures[0];
+    assert.strictEqual(c.partnerId, 999, 'elder 喪偶載入後應維持原本已婚狀態不變，跟化星當下的續弦規則一致');
+  } finally {
+    delete global.localStorage;
+  }
+});
+
+test('load 存量修復：partnerId 指向存在的 id（正常已婚）時，載入不應誤清除', () => {
+  const world = Sim.newWorld(rngFactory(70));
+  const [a, b] = world.creatures;
+  a.partnerId = b.id; b.partnerId = a.id;
+  a.nextEggTick = 500; a.meetCounts = { 777: 1 };
+
+  let store = {};
+  global.localStorage = {
+    getItem: (k) => (Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null),
+    setItem: (k, v) => { store[k] = String(v); },
+    removeItem: (k) => { delete store[k]; },
+  };
+  try {
+    Sim.save(world);
+    const loaded = Sim.load();
+    const loadedA = loaded.world.creatures.find((c) => c.id === a.id);
+    assert.strictEqual(loadedA.partnerId, b.id, '伴侶仍存在於 creatures，不該被存量修復誤清除');
+    assert.strictEqual(loadedA.nextEggTick, 500, '正常配對的排程不該被誤清');
+  } finally {
+    delete global.localStorage;
+  }
+});

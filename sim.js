@@ -399,6 +399,19 @@ const Sim = {};
     }
     if (!Array.isArray(data.ownedDecor)) data.ownedDecor = [];
 
+    // 存量修復（不綁版本號，每次 load 都檢查）：partnerId 指向不存在於 creatures 的 id
+    // 代表伴侶已化星消失——這種舊資料不會再經歷一次化星事件觸發 tick() 裡的清除邏輯，
+    // 這裡比照同一套續弦規則補救：adult 解除婚姻關係可再配，elder 維持原狀（守寡語意）
+    for (const c of data.creatures) {
+      if (c.partnerId != null && !data.creatures.some((o) => o.id === c.partnerId)) {
+        if (c.stage === 'adult') {
+          c.partnerId = null;
+          c.nextEggTick = null;
+          c.meetCounts = {};
+        }
+      }
+    }
+
     const world = {
       tick: data.tick, hearts: data.hearts, nextId: data.nextId,
       creatures: data.creatures, archive: data.archive, decor: data.decor,
