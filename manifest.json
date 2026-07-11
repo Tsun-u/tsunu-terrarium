@@ -1,0 +1,29 @@
+{
+  "name": "像素生態瓶",
+  "short_name": "生態瓶",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#16303e",
+  "theme_color": "#16303e",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
