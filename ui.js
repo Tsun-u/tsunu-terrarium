@@ -1046,9 +1046,13 @@ const UI = {};
 
   const busyIds = new Set();   // 正在玩佈景的孩子（避免一隻同時軋三個劇本）
 
+  // 夜間遊具減班：晚上一半機率直接休息，把幼體的檔期留給夜間限定的開關燈惡作劇
+  // （全部遊具共用 busyIds，遊具全天候搶人會把夜戲餓死——實玩回饋）
+  const nightRest = () => Render.isNight(W) && Math.random() < 0.5;
+
   let riding = null;   // 一次只有一隻在玩
   function tryPlaytime() {
-    if (!W || document.hidden || riding) return;
+    if (!W || document.hidden || riding || nightRest()) return;
     const swing = (W.decor || []).find(d => d.kind === 'swing');
     const kids = W.creatures.filter(c => c.stage === 'child' && !busyIds.has(c.id));
     if (!swing || !kids.length || Math.random() < 0.35) return;
@@ -1092,7 +1096,7 @@ const UI = {};
     if (!W || document.hidden || pranking || !Render.isNight(W)) return;
     const lantern = (W.decor || []).find(d => d.kind === 'lantern');
     const kids = W.creatures.filter(c => c.stage === 'child' && !busyIds.has(c.id));
-    if (!lantern || !kids.length || Math.random() < 0.4) return;
+    if (!lantern || !kids.length || Math.random() < 0.25) return;
     const kid = kids[Math.floor(Math.random() * kids.length)];
     pranking = true;
     busyIds.add(kid.id);
@@ -1135,7 +1139,7 @@ const UI = {};
     }, 250);
   }
   function prankLoop() {
-    setTimeout(() => { tryPrank(); prankLoop(); }, 40000 + Math.random() * 50000);
+    setTimeout(() => { tryPrank(); prankLoop(); }, 30000 + Math.random() * 40000);
   }
 
   /* ---------- 白天池塘潑水仗（兩隻在池邊互潑，佈景互動三部曲之三） ---------- */
@@ -1249,7 +1253,7 @@ const UI = {};
 
   let sliding = null;
   function trySlide() {
-    if (!W || document.hidden || sliding) return;
+    if (!W || document.hidden || sliding || nightRest()) return;
     const slide = (W.decor || []).find(d => d.kind === 'slide');
     const kids = W.creatures.filter(c => c.stage === 'child' && !busyIds.has(c.id));
     if (!slide || !kids.length || Math.random() < 0.3) return;
@@ -1308,7 +1312,7 @@ const UI = {};
 
   let seesawing = false;
   function trySeesaw() {
-    if (!W || document.hidden || seesawing) return;
+    if (!W || document.hidden || seesawing || nightRest()) return;
     const seesaw = (W.decor || []).find(d => d.kind === 'seesaw');
     // 幼體優先湊對，不夠就大小同樂（親子蹺蹺板）
     const free = W.creatures.filter(c =>
