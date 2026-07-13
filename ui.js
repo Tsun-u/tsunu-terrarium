@@ -1422,7 +1422,7 @@ const UI = {};
       // 每輪用當下家具座標重算座位，家具被搬動時跟著走（同 seesaw/splash 風格）。
       // 雙人座：x 間距拉到 8px（依偎收 1px 後回到 6px，跟單人時同寬，不會比原設計更擠）；
       // 加 y 前後交錯（±1px）讓繪製順序穩定、疊圖時兩隻的輪廓都露得出來，不靠 sort tie-break 碰運氣
-      // ——較寬的形狀基因兩隻幾乎完全疊在一起、看起來像合體不像依偎（上線後村民實測回報）
+      // ——較寬的形狀基因兩隻幾乎完全疊在一起、看起來像合體不像依偎
       const seatMx = sf.x + (cp ? -4 : 0), seatPx = sf.x + 4;
       const seatMy = sf.y - 7 + (cp ? 1 : 0), seatPy = sf.y - 7 - 1;
       if (lounging.phase === 'walk') {
