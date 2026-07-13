@@ -54,7 +54,8 @@ const C = {
   SHOP: {
     extend: { base: 30, factor: 2 },   // 延壽 +24hr；同隻第 n 次 = base × factor^n
     match: 50,                          // 月老紅線
-    decor: { flower: 20, lantern: 40, seesaw: 50, swing: 60, slide: 70, bridge: 80, pond: 100 },
+    decor: { flower: 20, lantern: 40, seesaw: 50, swing: 60, slide: 70, bridge: 80, pond: 100,
+              sofa: 40, cradle: 60, bunk: 80, campfire: 90, gathering: 60 },
   },
   EXTEND_SEC: 24 * 3600,
 
@@ -119,7 +120,8 @@ const C = {
 
    第二階段（商店；金流一律 sim 檢查，hearts 不足 → {ok:false} 且不動任何狀態）：
      Creature 新欄位 lifeBuys:int（延壽次數；v1 遷移補 0）
-     Save v2 新欄位 decor: [{ kind:'flower'|'lantern'|'seesaw'|'swing'|'slide'|'bridge'|'pond', x, y }]
+     Save v2 新欄位 decor: [{ kind:'flower'|'lantern'|'seesaw'|'swing'|'slide'|'bridge'|'pond'
+                              |'sofa'|'cradle'|'bunk'|'campfire'|'gathering', x, y }]
      Sim.extendLife(world, id)          -> { ok, price }   // 扣款+延壽+lifeBuys++；
                                             // 回春：elder 且延壽後距化星 > ELDER_BEFORE_SEC → stage 'adult'
      Sim.matchmake(world, idA, idB)     -> { ok }          // 兩隻 adult/elder 且單身才成立

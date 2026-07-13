@@ -451,6 +451,9 @@ const UI = {};
         .sort((a, b) => Math.hypot(a.x - x, a.y - y) - Math.hypot(b.x - x, b.y - y))
         .slice(0, 3)
         .forEach(c => {
+          // 正在扛堅果的話標記中斷：讓 tryGather 的 interval 下一輪自行收工掉落，這裡不動它的搬運狀態
+          const carrying = Render.nuts.find(n => n.state === 'carried' && n.carrierId === c.id);
+          if (carrying) carrying.interrupted = true;
           // 皮克敏式衝刺：看到果實用比散步快得多的速度小跑過去
           const d = Math.hypot(c.x - x, c.y - y) || 1;
           const spd = C.RUSH_SPEED * c.genes.speed;
@@ -1375,6 +1378,605 @@ const UI = {};
     setTimeout(() => { trySeesaw(); seesawLoop(); }, 30000 + Math.random() * 40000);
   }
 
+  /* ---------- 苔蘚沙發（大人的家具：伴侶依偎，或 elder 獨坐看天空） ---------- */
+
+  let lounging = null;
+  function trySofa() {
+    if (!W || document.hidden || lounging || nightRest()) return;
+    const sofa = (W.decor || []).find(d => d.kind === 'sofa');
+    const free = W.creatures.filter(c =>
+      (c.stage === 'adult' || c.stage === 'elder') && !busyIds.has(c.id));
+    if (!sofa || !free.length || Math.random() < 0.35) return;
+    const main = free[Math.floor(Math.random() * free.length)];
+    let partner = null;
+    if (main.partnerId != null) {
+      const p = W.creatures.find(c => c.id === main.partnerId);
+      if (p && !busyIds.has(p.id)) partner = p;
+    }
+    lounging = { mainId: main.id, partnerId: partner ? partner.id : null,
+      phase: 'walk', until: Date.now() + 30000 };
+    busyIds.add(main.id);
+    if (partner) busyIds.add(partner.id);
+    const iv = setInterval(() => {
+      const cm = W.creatures.find(x => x.id === lounging?.mainId);
+      const cp = lounging?.partnerId != null ? W.creatures.find(x => x.id === lounging.partnerId) : null;
+      const sf = (W.decor || []).find(d => d.kind === 'sofa');
+      const needsPartner = lounging.partnerId != null;
+      if (!cm || !sf || (needsPartner && !cp) || Date.now() > lounging.until) {
+        busyIds.delete(lounging.mainId);
+        if (lounging.partnerId != null) busyIds.delete(lounging.partnerId);
+        lounging = null; clearInterval(iv); return;   // 家具被收走/伴侶消失/超時 → 收工
+      }
+      // 每輪用當下家具座標重算座位，家具被搬動時跟著走（同 seesaw/splash 風格）
+      const seatMx = sf.x + (cp ? -3 : 0), seatPx = sf.x + 3, seatY = sf.y - 7;
+      if (lounging.phase === 'walk') {
+        const dm = Math.hypot(cm.x - seatMx, cm.y - seatY) || 1;
+        const mArrived = dm < 4;
+        if (!mArrived) {
+          cm.action = 'walk'; cm.actionUntil = W.tick + 4;
+          cm.vx = (seatMx - cm.x) / dm * C.WALK_SPEED_MAX * 0.8;
+          cm.vy = (seatY - cm.y) / dm * C.WALK_SPEED_MAX * 0.8;
+        } else {
+          cm.action = 'idle'; cm.actionUntil = W.tick + 4; cm.vx = 0; cm.vy = 0;
+        }
+        let pArrived = true;
+        if (cp) {
+          const dp = Math.hypot(cp.x - seatPx, cp.y - seatY) || 1;
+          pArrived = dp < 4;
+          if (!pArrived) {
+            cp.action = 'walk'; cp.actionUntil = W.tick + 4;
+            cp.vx = (seatPx - cp.x) / dp * C.WALK_SPEED_MAX * 0.8;
+            cp.vy = (seatY - cp.y) / dp * C.WALK_SPEED_MAX * 0.8;
+          } else {
+            cp.action = 'idle'; cp.actionUntil = W.tick + 4; cp.vx = 0; cp.vy = 0;
+          }
+        }
+        if (mArrived && pArrived) {
+          lounging.phase = 'sit';
+          lounging.until = Date.now() + 20000 + Math.random() * 15000;   // 坐 20~35 秒
+          cm.x = seatMx + (cp ? 1 : 0); cm.y = seatY;   // 落座；有伴侶時各往中間偏 1px 依偎
+          if (cp) {
+            cp.x = seatPx - 1; cp.y = seatY;
+            Render.snuggleAt((cm.x + cp.x) / 2, seatY - 6);
+          } else if (cm.stage === 'elder') {
+            cm.action = 'gaze';   // 搖椅分支：老人家獨坐看天空
+          }
+        }
+      } else {
+        // sit：坐滿 lounging.until 由外層 timeout 判斷收工，這裡只負責維持坐姿
+        cm.actionUntil = W.tick + 4; cm.vx = 0; cm.vy = 0;
+        cm.x = seatMx + (cp ? 1 : 0); cm.y = seatY;
+        if (cm.action !== 'gaze') cm.action = 'idle';
+        if (cp) { cp.action = 'idle'; cp.actionUntil = W.tick + 4; cp.vx = 0; cp.vy = 0; cp.x = seatPx - 1; cp.y = seatY; }
+      }
+    }, 250);
+  }
+  function sofaLoop() {
+    setTimeout(() => { trySofa(); sofaLoop(); }, 40000 + Math.random() * 40000);
+  }
+
+  /* ---------- 貝殼上下舖（夜間限定：兩幼體搶上舖，或幼體＋親代同睡） ---------- */
+
+  let bunking = null;
+  function tryBunk() {
+    if (!W || document.hidden || bunking || !Render.isNight(W)) return;
+    const bunk = (W.decor || []).find(d => d.kind === 'bunk');
+    if (!bunk) return;
+    const kids = W.creatures.filter(c => c.stage === 'child' && !busyIds.has(c.id));
+    let a = null, b = null, isFamily = false;
+    if (kids.length >= 2) {
+      const shuffled = kids.sort(() => Math.random() - 0.5);
+      a = shuffled[0]; b = shuffled[1];
+    } else if (kids.length === 1 && kids[0].parents) {
+      const parent = kids[0].parents.map(pid => W.creatures.find(c => c.id === pid))
+        .find(p => p && p.stage !== 'egg' && p.stage !== 'star' && !busyIds.has(p.id));
+      if (parent) { a = kids[0]; b = parent; isFamily = true; }
+    }
+    if (!a || !b || Math.random() < 0.3) return;
+    busyIds.add(a.id); busyIds.add(b.id);
+    // walkDeadline（集合／爬梯階段）／sleepUntil（睡眠時長）分開，理由同 cradle：
+    // 共用一個 until 會被外層 timeout 搶先攔截，睡醒跳下床的收尾永遠走不到
+    bunking = {
+      aId: a.id, bId: b.id, isFamily, upperId: isFamily ? a.id : null,
+      phase: 'raceToBed', climbP: 0, walkDeadline: Date.now() + 45000, sleepUntil: null,
+    };
+    const iv = setInterval(() => {
+      const ca = W.creatures.find(x => x.id === bunking?.aId);
+      const cb = W.creatures.find(x => x.id === bunking?.bId);
+      const bk = (W.decor || []).find(d => d.kind === 'bunk');
+      // 幼體中途長大也要散場：親子模式只有 a 是幼體，兩幼體模式 a/b 都要維持 child
+      const kidStillChild = ca && (bunking.isFamily ? ca.stage === 'child' : ca.stage === 'child' && cb && cb.stage === 'child');
+      if (!ca || !cb || !bk || !kidStillChild) {
+        busyIds.delete(bunking.aId); busyIds.delete(bunking.bId);
+        bunking = null; clearInterval(iv); return;   // 床被收走/角色消失/幼體長大 → 立即收工
+      }
+      if (bunking.phase !== 'sleep' && Date.now() > bunking.walkDeadline) {
+        busyIds.delete(bunking.aId); busyIds.delete(bunking.bId);
+        bunking = null; clearInterval(iv); return;   // 集合／爬梯階段超時 → 收工
+      }
+      // 每輪用當下家具座標重算，家具被搬動時跟著走（同 seesaw/splash 風格）
+      const foot = { x: bk.x + 7, y: bk.y - 1 };
+      const top = { x: bk.x + 7, y: bk.y - 9 };
+      const upperPillow = { x: bk.x - 3.5, y: bk.y - 14 };
+      const lowerPillow = { x: bk.x - 3.5, y: bk.y - 6 };
+      const go = (c, tx, ty) => {
+        const d = Math.hypot(c.x - tx, c.y - ty) || 1;
+        if (d < 4) { c.action = 'idle'; c.actionUntil = W.tick + 4; c.vx = 0; c.vy = 0; return true; }
+        c.action = 'walk'; c.actionUntil = W.tick + 4;
+        c.vx = (tx - c.x) / d * C.WALK_SPEED_MAX * 0.8;
+        c.vy = (ty - c.y) / d * C.WALK_SPEED_MAX * 0.8;
+        return false;
+      };
+      if (bunking.phase === 'raceToBed') {
+        if (bunking.isFamily) {
+          // 親子組合：親代不搶，直接走下舖；幼體走梯腳
+          const aAt = go(ca, foot.x, foot.y);
+          const bAt = go(cb, lowerPillow.x, lowerPillow.y);
+          if (aAt && bAt) bunking.phase = 'climb';
+        } else {
+          // 兩幼體：誰先跑到梯腳誰贏上舖，不用寫輸贏邏輯，自然湧現
+          const aAt = go(ca, foot.x, foot.y);
+          const bAt = go(cb, foot.x, foot.y);
+          if (aAt || bAt) {
+            bunking.upperId = aAt ? ca.id : cb.id;
+            bunking.phase = 'settle';
+            bunking.until2 = Date.now() + 500;   // 後到者愣半拍
+          }
+        }
+      } else if (bunking.phase === 'settle') {
+        const winC = bunking.upperId === ca.id ? ca : cb;
+        const losC = bunking.upperId === ca.id ? cb : ca;
+        winC.action = 'idle'; winC.actionUntil = W.tick + 4; winC.vx = 0; winC.vy = 0;
+        losC.action = 'idle'; losC.actionUntil = W.tick + 4; losC.vx = 0; losC.vy = 0;
+        if (Date.now() > bunking.until2) bunking.phase = 'climb';
+      } else if (bunking.phase === 'climb') {
+        const climber = bunking.upperId === ca.id ? ca : cb;
+        const other = bunking.upperId === ca.id ? cb : ca;
+        bunking.climbP = Math.min(1, bunking.climbP + 250 / 1700);   // 等速爬梯 ~1.7 秒（同滑梯 climb 相位）
+        climber.action = 'idle'; climber.actionUntil = W.tick + 4; climber.vx = 0; climber.vy = 0;
+        climber.x = foot.x; climber.y = foot.y + (top.y - foot.y) * bunking.climbP;
+        const otherAt = go(other, lowerPillow.x, lowerPillow.y);
+        if (bunking.climbP >= 1 && otherAt) {
+          climber.x = upperPillow.x; climber.y = upperPillow.y; climber.action = 'sleep'; climber.actionUntil = W.tick + 4;
+          other.x = lowerPillow.x; other.y = lowerPillow.y; other.action = 'sleep'; other.actionUntil = W.tick + 4;
+          bunking.phase = 'sleep';
+          bunking.sleepUntil = Date.now() + 40000 + Math.random() * 40000;   // 睡 40~80 秒
+        }
+      } else {
+        // sleep：持續鎖枕位避免被 sim 拉走
+        const upperC = bunking.upperId === ca.id ? ca : cb;
+        const lowerC = bunking.upperId === ca.id ? cb : ca;
+        upperC.action = 'sleep'; upperC.actionUntil = W.tick + 4; upperC.vx = 0; upperC.vy = 0;
+        upperC.x = upperPillow.x; upperC.y = upperPillow.y;
+        lowerC.action = 'sleep'; lowerC.actionUntil = W.tick + 4; lowerC.vx = 0; lowerC.vy = 0;
+        lowerC.x = lowerPillow.x; lowerC.y = lowerPillow.y;
+        if (Date.now() > bunking.sleepUntil) {
+          upperC.x = foot.x; upperC.y = foot.y - 2;   // 醒來：上舖的跳下床，落地小彈跳（同滑梯到底手法）
+          busyIds.delete(bunking.aId); busyIds.delete(bunking.bId);
+          bunking = null; clearInterval(iv);
+        }
+      }
+    }, 250);
+  }
+  function bunkLoop() {
+    setTimeout(() => { tryBunk(); bunkLoop(); }, 60000 + Math.random() * 60000);
+  }
+
+  /* ---------- 球咪搖籃（幼體限定，親代加分戲：哄睡後躡手躡腳離開） ---------- */
+
+  const CRADLE_SWAY_PERIOD = 1200;   // ms，需與 render.js 的 CRADLE_PERIOD 同值才會同相位
+  let cradling = null;
+  function tryCradle() {
+    if (!W || document.hidden || cradling || nightRest()) return;
+    const cradle = (W.decor || []).find(d => d.kind === 'cradle');
+    const kids = W.creatures.filter(c => c.stage === 'child' && !busyIds.has(c.id));
+    if (!cradle || !kids.length || Math.random() < 0.3) return;
+    const kid = kids[Math.floor(Math.random() * kids.length)];
+    let parent = null;
+    if (kid.parents) {
+      parent = kid.parents.map(pid => W.creatures.find(c => c.id === pid))
+        .find(p => p && p.stage !== 'egg' && p.stage !== 'star' && !busyIds.has(p.id));
+    }
+    busyIds.add(kid.id);
+    if (parent) busyIds.add(parent.id);
+    // walkDeadline／sleepUntil 分開：兩者都塞進同一個 until 欄位會被外層 timeout 判斷搶先攔截，
+    // 導致 sleep phase 自然結束時走不到下面的 breeze 衰減，永遠只會撞到這裡的異常保底
+    cradling = { kidId: kid.id, parentId: parent ? parent.id : null,
+      phase: 'walk', walkDeadline: Date.now() + 30000, sleepUntil: null, leaveAt: null };
+    const iv = setInterval(() => {
+      const ck = W.creatures.find(x => x.id === cradling?.kidId);
+      const cp = cradling?.parentId != null ? W.creatures.find(x => x.id === cradling.parentId) : null;
+      const cr = (W.decor || []).find(d => d.kind === 'cradle');
+      if (!ck || ck.stage !== 'child' || !cr || (cradling.parentId != null && !cp)) {
+        busyIds.delete(cradling.kidId);
+        if (cradling.parentId != null) busyIds.delete(cradling.parentId);
+        Render.setCradleMotion(null);
+        cradling = null; clearInterval(iv); return;   // 搖籃被收走/角色消失/幼體長大 → 立即收工
+      }
+      // 每輪用當下家具座標重算，家具被搬動時跟著走（同 seesaw/splash 風格）
+      const kidSpot = { x: cr.x, y: cr.y - 5 };
+      const parentSpot = { x: cr.x + 6, y: cr.y - 2 };
+      if (cradling.phase === 'walk') {
+        if (Date.now() > cradling.walkDeadline) {
+          busyIds.delete(cradling.kidId);
+          if (cradling.parentId != null) busyIds.delete(cradling.parentId);
+          Render.setCradleMotion(null);
+          cradling = null; clearInterval(iv); return;   // 集合超時 → 收工
+        }
+        const d = Math.hypot(ck.x - kidSpot.x, ck.y - kidSpot.y) || 1;
+        const kidAt = d < 4;
+        if (!kidAt) {
+          ck.action = 'walk'; ck.actionUntil = W.tick + 4;
+          ck.vx = (kidSpot.x - ck.x) / d * C.WALK_SPEED_MAX * 0.8;
+          ck.vy = (kidSpot.y - ck.y) / d * C.WALK_SPEED_MAX * 0.8;
+        } else {
+          ck.action = 'idle'; ck.actionUntil = W.tick + 4; ck.vx = 0; ck.vy = 0;
+        }
+        let parentAt = true;
+        if (cp) {
+          const dp = Math.hypot(cp.x - parentSpot.x, cp.y - parentSpot.y) || 1;
+          parentAt = dp < 4;
+          if (!parentAt) {
+            cp.action = 'walk'; cp.actionUntil = W.tick + 4;
+            cp.vx = (parentSpot.x - cp.x) / dp * C.WALK_SPEED_MAX * 0.8;
+            cp.vy = (parentSpot.y - cp.y) / dp * C.WALK_SPEED_MAX * 0.8;
+          } else {
+            cp.action = 'idle'; cp.actionUntil = W.tick + 4; cp.vx = 0; cp.vy = 0;
+          }
+        }
+        if (kidAt && parentAt) {
+          cradling.phase = 'sleep';
+          cradling.sleepUntil = Date.now() + 30000 + Math.random() * 30000;   // 睡 30~60 秒
+          cradling.leaveAt = cp ? Date.now() + 10000 : null;                  // 親代在場：睡著後 10 秒離開
+          Render.setCradleMotion({ mode: 'rock' });
+        }
+      } else {
+        // sleep：幼體 x 與籃身同相位（跟 render.js cradleSway 共用同一條 performance.now() 式子）
+        ck.action = 'sleep'; ck.actionUntil = W.tick + 4; ck.vx = 0; ck.vy = 0;
+        const sway = Math.sin(performance.now() / CRADLE_SWAY_PERIOD * Math.PI * 2) * 1.5;
+        ck.x = kidSpot.x + sway; ck.y = kidSpot.y;
+        if (cp) {
+          if (cradling.leaveAt && Date.now() > cradling.leaveAt) {
+            // 躡手躡腳離開：給個隨機方向的慢速度（0.4 倍走速），之後放給 sim 接管
+            const ang = Math.random() * Math.PI * 2;
+            cp.action = 'walk'; cp.actionUntil = W.tick + 20;
+            cp.vx = Math.cos(ang) * C.WALK_SPEED_MAX * 0.4;
+            cp.vy = Math.sin(ang) * C.WALK_SPEED_MAX * 0.4;
+            busyIds.delete(cradling.parentId);
+            cradling.parentId = null;
+          } else {
+            // 站定輕推：同開關燈「站定微晃」手法，晃動相位與搖籃同步（幅度略小）
+            cp.action = 'idle'; cp.actionUntil = W.tick + 4; cp.vx = 0; cp.vy = 0;
+            cp.x = parentSpot.x + sway * 0.6; cp.y = parentSpot.y;
+          }
+        }
+        if (Date.now() > cradling.sleepUntil) {
+          // 散場：搖動衰減停止（複用風吹的 breeze 衰減式），不是瞬間 null 掉
+          const now = performance.now();
+          Render.setCradleMotion({ mode: 'breeze', start: now, until: now + 2200 });
+          busyIds.delete(cradling.kidId);
+          if (cradling.parentId != null) busyIds.delete(cradling.parentId);
+          cradling = null; clearInterval(iv);
+        }
+      }
+    }, 250);
+  }
+  function cradleLoop() {
+    setTimeout(() => { tryCradle(); cradleLoop(); }, 45000 + Math.random() * 45000);
+  }
+
+  // 無人使用時偶爾一陣風，把搖籃輕輕搖幾下
+  function cradleBreezeLoop() {
+    setTimeout(() => {
+      if (W && !document.hidden && !cradling && (W.decor || []).some(d => d.kind === 'cradle')) {
+        const now = performance.now();
+        Render.setCradleMotion({ mode: 'breeze', start: now, until: now + 2200 });
+      }
+      cradleBreezeLoop();
+    }, 45000 + Math.random() * 65000);
+  }
+
+  /* ---------- 篝火（夜間限定：全遊戲第一個群聚事件＋火星許願） ---------- */
+
+  // 座位：內側兩位較近火、外側兩位再往外＋往前站，圍出弧形；
+  // 篝火 sprite 僅 12px 寬，間距需夠大才能避免生物疊在一起、把火焰整個遮住
+  function fireSeatsFor(n) {
+    const L2 = { x: -16, y: 6 }, L1 = { x: -6, y: 3 }, R1 = { x: 6, y: 3 }, R2 = { x: 16, y: 6 };
+    if (n === 2) return [L1, R1];
+    if (n === 3) return Math.random() < 0.5 ? [L2, L1, R1] : [L1, R1, R2];
+    return [L2, L1, R1, R2];
+  }
+
+  let campfiring = null;
+  function tryCampfire() {
+    if (!W || document.hidden || campfiring || !Render.isNight(W)) return;
+    const fire = (W.decor || []).find(d => d.kind === 'campfire');
+    const free = W.creatures.filter(c => c.stage !== 'egg' && c.stage !== 'star' && !busyIds.has(c.id));
+    if (!fire || free.length < 2 || Math.random() < 0.4) return;
+    const n = Math.min(free.length, 2 + Math.floor(Math.random() * 3));   // 2~4 隻
+    const shuffled = free.sort(() => Math.random() - 0.5);
+    const picks = shuffled.slice(0, n);
+    const elderInFree = free.find(c => c.stage === 'elder');   // 有 elder 時保底入選一名（許願主角）
+    if (elderInFree && !picks.includes(elderInFree)) picks[picks.length - 1] = elderInFree;
+    picks.forEach(c => busyIds.add(c.id));
+    campfiring = {
+      ids: picks.map(c => c.id), seats: fireSeatsFor(picks.length),
+      phase: 'walk', until: Date.now() + 45000,   // 集合超時 45 秒
+      partyUntil: null, wishAt: null, wished: false, wishGazeId: null, wishGazeUntil: 0,
+    };
+    const iv = setInterval(() => {
+      const cs = campfiring.ids.map(id => W.creatures.find(x => x.id === id));
+      const fr = (W.decor || []).find(d => d.kind === 'campfire');
+      const alive = cs.filter(Boolean);
+      if (!fr || alive.length < 2) {
+        campfiring.ids.forEach(id => busyIds.delete(id));
+        campfiring = null; clearInterval(iv); return;   // 篝火被收走/湊不到 2 隻 → 收工
+      }
+      if (campfiring.phase === 'walk') {
+        if (Date.now() > campfiring.until) {
+          // 集合超時：到場的有幾隻就演幾隻，還沒到的放棄；不夠 2 隻才整場解散。
+          // 用座位距離判定到場，不要用 action==='idle'——那個上一輪才更新，deadline 當輪判斷會有時間差誤判
+          const arrived = [];
+          cs.forEach((c, i) => {
+            if (!c) return;
+            const tx = fr.x + campfiring.seats[i].x, ty = fr.y + campfiring.seats[i].y;
+            if (Math.hypot(c.x - tx, c.y - ty) < 4) arrived.push(i);
+          });
+          if (arrived.length < 2) {
+            campfiring.ids.forEach(id => busyIds.delete(id));
+            campfiring = null; clearInterval(iv); return;
+          }
+          // 一律照原始 ids 索引釋放未到場者，不要看 c 是否存在——角色化星消失時 c 會是 undefined，
+          // 用 c.id 判斷會漏放，留下永久卡住 busyIds 的殭屍 id
+          campfiring.ids.forEach((id, i) => { if (!arrived.includes(i)) busyIds.delete(id); });
+          campfiring.ids = arrived.map(i => campfiring.ids[i]);
+          campfiring.seats = arrived.map(i => campfiring.seats[i]);
+          campfiring.phase = 'party';
+          campfiring.partyUntil = Date.now() + 25000 + Math.random() * 15000;
+          campfiring.wishAt = Date.now() + (campfiring.partyUntil - Date.now()) * 0.4;
+          return;
+        }
+        let allArrived = true;
+        cs.forEach((c, i) => {
+          if (!c) return;
+          const tx = fr.x + campfiring.seats[i].x, ty = fr.y + campfiring.seats[i].y;
+          const d = Math.hypot(c.x - tx, c.y - ty) || 1;
+          if (d >= 4) {
+            allArrived = false;
+            c.action = 'walk'; c.actionUntil = W.tick + 4;
+            c.vx = (tx - c.x) / d * C.WALK_SPEED_MAX * 0.8;
+            c.vy = (ty - c.y) / d * C.WALK_SPEED_MAX * 0.8;
+          } else {
+            c.action = 'idle'; c.actionUntil = W.tick + 4; c.vx = 0; c.vy = 0;
+          }
+        });
+        if (allArrived) {
+          campfiring.phase = 'party';
+          campfiring.partyUntil = Date.now() + 25000 + Math.random() * 15000;   // 晚會 25~40 秒
+          campfiring.wishAt = Date.now() + (campfiring.partyUntil - Date.now()) * 0.4;   // 中段許願
+        }
+      } else {
+        if (Date.now() > campfiring.partyUntil) {
+          campfiring.ids.forEach(id => busyIds.delete(id));
+          campfiring = null; clearInterval(iv); return;
+        }
+        // party：晚會中段觸發一次火星許願（elder 優先抬頭 gaze）
+        if (!campfiring.wished && Date.now() > campfiring.wishAt) {
+          campfiring.wished = true;
+          const elder = cs.find(c => c && c.stage === 'elder') || cs.find(Boolean);
+          if (elder) {
+            campfiring.wishGazeId = elder.id;
+            campfiring.wishGazeUntil = Date.now() + 4000;
+            Render.playAmbient('wish', W);
+          }
+        }
+        // 微晃取暖，相位錯開（同潑水仗「你來我往」手法）；許願中的那隻維持 gaze 不晃動
+        cs.forEach((c, i) => {
+          if (!c) return;
+          const tx = fr.x + campfiring.seats[i].x, ty = fr.y + campfiring.seats[i].y;
+          c.actionUntil = W.tick + 4; c.vx = 0; c.vy = 0;
+          if (c.id === campfiring.wishGazeId && Date.now() < campfiring.wishGazeUntil) {
+            c.action = 'gaze'; c.x = tx; c.y = ty;
+          } else {
+            c.action = 'idle';
+            c.x = tx + (Math.floor(performance.now() / 340 + i) % 2 ? 0.7 : -0.7);
+            c.y = ty;
+          }
+        });
+      }
+    }, 250);
+  }
+  function campfireLoop() {
+    setTimeout(() => { tryCampfire(); campfireLoop(); }, 90000 + Math.random() * 60000);
+  }
+
+  /* ---------- 堅果搬運（花叢／採集點，兩者互相獨立，單買都有戲） ---------- */
+
+  // 花叢生成：場上有花叢即啟用，跟採集點無關；同時上限（含頭頂與掉落）2 顆、槽滿 3 顆停產
+  function nutGrowLoop() {
+    setTimeout(() => {
+      if (W && !document.hidden) {
+        const bush = (W.decor || []).find(d => d.kind === 'flower');
+        const activeNuts = Render.nuts.filter(n => n.state !== 'stored').length;
+        if (bush && Render.nutStock() < 3 && activeNuts < 2) Render.addNut(bush.x, bush.y - 6);
+      }
+      nutGrowLoop();
+    }, 60000 + Math.random() * 30000);
+  }
+
+  // 只有採集點模式：玩家餵食掉在地上的食物，有機會被撿去搬進採集點存放
+  function tryAdoptFruit() {
+    if (!W || document.hidden) return;
+    const spot = (W.decor || []).find(d => d.kind === 'gathering');
+    const hasBush = (W.decor || []).some(d => d.kind === 'flower');
+    if (!spot || hasBush || Render.nutStock() >= 3) return;   // 限定「只有採集點、沒有花叢」單置模式
+    if (Render.nuts.filter(n => n.state !== 'stored').length >= 2) return;
+    const fruit = Render.fruits.find(f => !f.eaten && performance.now() - f.born > 3000);
+    if (!fruit || Math.random() < 0.5) return;
+    fruit.eaten = true;   // 從既有 fruits 系統除名，改由堅果搬運系統接手，避免雙重處理
+    Render.addNut(fruit.x, fruit.y);
+  }
+  function adoptFruitLoop() {
+    setTimeout(() => { tryAdoptFruit(); adoptFruitLoop(); }, 6000 + Math.random() * 8000);
+  }
+
+  // 摘取＋後續動線：有採集點就搬去存放；沒有就當場吃掉，或頂去送給伴侶／孩子吃
+  function tryGather() {
+    if (!W || document.hidden) return;
+    const nut = Render.nuts.find(n => n.state === 'bush' && !n.locked);
+    if (!nut) return;
+    const free = W.creatures.filter(c => c.stage !== 'egg' && c.stage !== 'star' && !busyIds.has(c.id));
+    if (!free.length) return;
+    const picker = free.sort((a, b) =>
+      Math.hypot(a.x - nut.x, a.y - nut.y) - Math.hypot(b.x - nut.x, b.y - nut.y))[0];
+    busyIds.add(picker.id);
+    nut.locked = true;
+    const slow = picker.stage === 'child' ? 0.6 : 1;   // 幼體也能搬，速度略慢
+    // deadline（整段流程 40 秒總超時，全程不變）／phaseUntil（selfEat、gifted 這種短暫收尾階段各自的截止時間）
+    // 分開存放，避免像 cradle/bunk 那樣共用一個欄位被短計時覆寫、語意混在一起
+    const st = { phase: 'toNut', deadline: Date.now() + 40000, phaseUntil: null, giftTo: null };
+    const cleanup = () => {
+      busyIds.delete(picker.id);
+      if (st.giftTo != null) busyIds.delete(st.giftTo);
+    };
+    const iv = setInterval(() => {
+      const c = W.creatures.find(x => x.id === picker.id);
+      if (!c || Date.now() > st.deadline || nut.interrupted) {
+        if (nut.state === 'bush') nut.locked = false;              // 還沒摘到手，放回去讓別人摘
+        else if (nut.state === 'carried') Render.dropNut(nut, c ? c.x : nut.x, c ? c.y : nut.y);  // 扛著中途被打斷/出事，掉在腳邊
+        cleanup(); clearInterval(iv); return;
+      }
+      if (st.phase === 'toNut') {
+        const d = Math.hypot(c.x - nut.x, c.y - nut.y) || 1;
+        if (d < 4) {
+          nut.state = 'carried'; nut.carrierId = picker.id;
+          const spot = (W.decor || []).find(d2 => d2.kind === 'gathering');
+          if (spot) {
+            st.phase = 'toSpot';
+          } else {
+            // 沒有採集點：決定直接吃掉，或頂去送給伴侶／孩子吃
+            const candidates = [];
+            if (picker.partnerId != null) {
+              const p = W.creatures.find(x => x.id === picker.partnerId);
+              if (p && p.stage !== 'egg' && p.stage !== 'star' && !busyIds.has(p.id)) candidates.push(p);
+            }
+            W.creatures.forEach(x => {
+              if (x.stage === 'child' && x.parents && x.parents.includes(picker.id) && !busyIds.has(x.id)) candidates.push(x);
+            });
+            if (candidates.length && Math.random() < 0.6) {
+              const target = candidates[Math.floor(Math.random() * candidates.length)];
+              busyIds.add(target.id);
+              st.phase = 'toGift'; st.giftTo = target.id;
+            } else {
+              st.phase = 'selfEat'; st.phaseUntil = Date.now() + 1800;
+              Render.eatCarriedNut(nut, c);
+            }
+          }
+        } else {
+          c.action = 'walk'; c.actionUntil = W.tick + 4;
+          c.vx = (nut.x - c.x) / d * C.WALK_SPEED_MAX * 0.8 * slow;
+          c.vy = (nut.y - c.y) / d * C.WALK_SPEED_MAX * 0.8 * slow;
+        }
+      } else if (st.phase === 'toSpot') {
+        const spot = (W.decor || []).find(d2 => d2.kind === 'gathering');
+        if (!spot) {
+          Render.dropNut(nut, c.x, c.y);
+          cleanup(); clearInterval(iv); return;
+        }
+        const d = Math.hypot(c.x - spot.x, c.y - spot.y) || 1;
+        if (d < 4) {
+          // depositStart 獨立於 st.deadline（那是整段流程的 40 秒總超時，不能被這裡的 400ms 覆寫掉）
+          st.phase = 'depositing'; st.depositStart = Date.now();
+          c.action = 'idle'; c.actionUntil = W.tick + 4; c.vx = 0; c.vy = 0;
+        } else {
+          c.action = 'walk'; c.actionUntil = W.tick + 4;
+          c.vx = (spot.x - c.x) / d * C.WALK_SPEED_MAX * 0.8 * slow;
+          c.vy = (spot.y - c.y) / d * C.WALK_SPEED_MAX * 0.8 * slow;
+        }
+      } else if (st.phase === 'depositing') {
+        // 投放前小跳一下：起跳→落地的拋物線停頓，再真的存入槽內
+        const spot = (W.decor || []).find(d2 => d2.kind === 'gathering');
+        if (!spot) { Render.dropNut(nut, c.x, c.y); cleanup(); clearInterval(iv); return; }
+        c.action = 'idle'; c.actionUntil = W.tick + 4; c.vx = 0; c.vy = 0;
+        const p = Math.min(1, (Date.now() - st.depositStart) / 400);
+        c.y = spot.y - Math.sin(p * Math.PI) * 2;
+        if (p >= 1) {
+          c.y = spot.y;
+          Render.storeNut(nut, spot); cleanup(); clearInterval(iv);
+        }
+      } else if (st.phase === 'toGift') {
+        const target = W.creatures.find(x => x.id === st.giftTo);
+        if (!target) {
+          busyIds.delete(st.giftTo); st.giftTo = null;
+          st.phase = 'selfEat'; st.phaseUntil = Date.now() + 1800;
+          Render.eatCarriedNut(nut, c);
+          return;
+        }
+        target.action = 'idle'; target.actionUntil = W.tick + 4; target.vx = 0; target.vy = 0;   // 等待方站定
+        const d = Math.hypot(c.x - target.x, c.y - target.y) || 1;
+        if (d < 5) {
+          st.phase = 'gifted'; st.phaseUntil = Date.now() + 1800;
+          Render.eatCarriedNut(nut, target);
+        } else {
+          c.action = 'walk'; c.actionUntil = W.tick + 4;
+          c.vx = (target.x - c.x) / d * C.WALK_SPEED_MAX * 0.8 * slow;
+          c.vy = (target.y - c.y) / d * C.WALK_SPEED_MAX * 0.8 * slow;
+        }
+      } else {   // selfEat / gifted：吃掉的當下已觸發咀嚼特效，這裡只負責站定收工
+        c.action = 'idle'; c.actionUntil = W.tick + 4; c.vx = 0; c.vy = 0;
+        if (Date.now() > st.phaseUntil) { cleanup(); clearInterval(iv); }
+      }
+    }, 250);
+  }
+  function gatherLoop() {
+    setTimeout(() => { tryGather(); gatherLoop(); }, 8000 + Math.random() * 12000);
+  }
+
+  // 路過生物嘴饞：爬上樹樁啃掉槽內一顆堅果（純表現的點心，不影響 sim 飽食度）
+  let eatingNut = false;
+  function tryEatNut() {
+    if (!W || document.hidden || eatingNut) return;
+    const spot = (W.decor || []).find(d => d.kind === 'gathering');
+    if (!spot || Render.nutStock() < 1) return;
+    const free = W.creatures.filter(c => c.stage !== 'egg' && c.stage !== 'star' && !busyIds.has(c.id));
+    if (!free.length || Math.random() < 0.4) return;
+    const eater = free[Math.floor(Math.random() * free.length)];
+    eatingNut = true; busyIds.add(eater.id);
+    // deadline（走去的路上 30 秒超時）／chewUntil（咬下去後的 2.2 秒咀嚼計時）分開存放，
+    // 兩者語意不同，共用一個欄位容易在未來加咀嚼專屬收尾動畫時踩雷（cradle/bunk 就是前車之鑑）
+    const st = { phase: 'walk', deadline: Date.now() + 30000, chewUntil: null };
+    const iv = setInterval(() => {
+      const c = W.creatures.find(x => x.id === eater.id);
+      const sp = (W.decor || []).find(d => d.kind === 'gathering');
+      // deadline 只管 walk 階段；chew 階段已經進場了，交給下面的 chewUntil 判斷，
+      // 不然快超時才咬到堅果時，2.2 秒咀嚼動畫會被這裡提前打斷
+      if (!c || !sp || (st.phase === 'walk' && Date.now() > st.deadline)) {
+        eatingNut = false; busyIds.delete(eater.id); clearInterval(iv); return;
+      }
+      if (st.phase === 'walk') {
+        // nutStock 只在還沒吃到的路上才有意義；chew 階段已經咬下去了，槽裡剩幾顆與這口無關
+        if (Render.nutStock() < 1) {
+          eatingNut = false; busyIds.delete(eater.id); clearInterval(iv); return;
+        }
+        const d = Math.hypot(c.x - sp.x, c.y - sp.y) || 1;
+        if (d < 4) {
+          st.phase = 'chew'; st.chewUntil = Date.now() + 2200;
+          Render.eatStoredNut(c);   // 咬第一口就消失＋掉屑特效，比較像"正在吃"而非"啃了一半"
+        } else {
+          c.action = 'walk'; c.actionUntil = W.tick + 4;
+          c.vx = (sp.x - c.x) / d * C.WALK_SPEED_MAX * 0.8;
+          c.vy = (sp.y - c.y) / d * C.WALK_SPEED_MAX * 0.8;
+        }
+      } else {
+        c.action = 'idle'; c.actionUntil = W.tick + 4; c.vx = 0; c.vy = 0;
+        if (Date.now() > st.chewUntil) { eatingNut = false; busyIds.delete(eater.id); clearInterval(iv); }
+      }
+    }, 250);
+  }
+  function eatNutLoop() {
+    setTimeout(() => { tryEatNut(); eatNutLoop(); }, 40000 + Math.random() * 50000);
+  }
+
   // 偶爾一陣風，把沒人玩的翹翹板吹得晃幾下
   function breezeLoop() {
     setTimeout(() => {
@@ -1388,6 +1990,7 @@ const UI = {};
 
   // 除錯把手：console 手動觸發佈景互動（仍受各自的前置條件與機率閘門約束）
   UI.debugPlay = { tryPlaytime, tryPrank, trySplash, tryCross, trySlide, trySeesaw,
+    trySofa, tryBunk, tryCradle, tryCampfire, tryGather, tryEatNut, tryAdoptFruit,
     world: () => W, busy: () => [...busyIds] };
 
   /* ---------- 池塘跳魚（小驚喜，不進事件排程、無 ❤） ---------- */
@@ -1480,6 +2083,15 @@ const UI = {};
     slideLoop();
     seesawLoop();
     breezeLoop();
+    sofaLoop();
+    bunkLoop();
+    cradleLoop();
+    cradleBreezeLoop();
+    campfireLoop();
+    nutGrowLoop();
+    adoptFruitLoop();
+    gatherLoop();
+    eatNutLoop();
   };
 })();
 

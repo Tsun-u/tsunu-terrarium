@@ -202,11 +202,16 @@ const Render = {};
   Render.addFruit = (x, y) => { fruits.push({ x, y, eaten: false, born: performance.now() }); };
   Render.fruits = fruits;   // ui.js 引導小動物時讀取
   Render.heartsAt = (x, y) => { anims.push({ type: 'hearts', x, y, start: performance.now(), dur: 1300 }); };
+  // 沙發依偎：2×2 小愛心閃兩下淡出（純視覺，不加 ❤ 數值）
+  Render.snuggleAt = (x, y) => { anims.push({ type: 'snuggle', x, y, start: performance.now(), dur: 1600 }); };
 
   /* ---------- 裝飾（第二階段） ---------- */
 
   const decorCache = new Map();
   let scenePondBig = false;
+
+  // 共用小工具：以同一色一次填多個矩形色塊，拼出點陣圖案
+  const px = (s, c, list) => { s.fillStyle = c; for (const [x, y, w = 1, h = 1] of list) s.fillRect(x, y, w, h); };
 
   // 橋的畫法獨立成參數化函式：世界裡要跨得過池塘（含擴建版），商店縮圖用固定小版
   function bridgeSprite(span) {
@@ -225,9 +230,67 @@ const Render = {};
     return cv;
   }
 
+  // 球咪搖籃 16×11：籃身隨 cradleSway 水平擺動，不快取
+  let cradleMotion = null;   // null | {mode:'rock'} | {mode:'breeze', start, until}
+  Render.setCradleMotion = m => { cradleMotion = m; };
+  const CRADLE_PERIOD = 1200;   // ms，一次完整搖擺
+  function cradleSway(tMs) {
+    const m = cradleMotion;
+    if (m && m.mode === 'rock') return Math.sin(tMs / CRADLE_PERIOD * Math.PI * 2) * 1.5;
+    if (m && m.mode === 'breeze') {
+      const el = performance.now() - m.start;
+      const p = Math.min(1, el / (m.until - m.start));
+      if (p >= 1) { cradleMotion = null; return 0; }
+      return 1.5 * (1 - p) * Math.cos(el / 260);   // 衰減擺動，收回靜止
+    }
+    return 0;
+  }
+  function cradleSprite(tMs) {
+    const cv = document.createElement('canvas');
+    cv.width = 16; cv.height = 11;
+    const s = cv.getContext('2d');
+    const dx = Math.round(cradleSway(tMs));
+    px(s, '#5c4327', [[1, 9, 4, 1], [11, 9, 4, 1], [3, 10, 10, 1]]);   // 弧形搖腳（固定不動）
+    px(s, '#c79868', [[3 + dx, 4, 10, 5]]);                            // 籃身
+    px(s, '#a8794f', [[3 + dx, 4, 1, 5], [12 + dx, 4, 1, 5], [4 + dx, 8, 8, 1]]); // 籃緣＋底沿
+    px(s, '#ffd3e0', [[5 + dx, 5, 7, 2]]);                             // 小被被
+    px(s, '#fff3b8', [[5 + dx, 7, 3, 1]]);                             // 枕頭
+    px(s, '#a8794f', [[2 + dx, 1, 4, 1], [1 + dx, 2, 2, 5]]);          // 左側頂篷
+    px(s, '#c79868', [[2 + dx, 2, 3, 3]]);                             // 頂篷內面
+    return withOutline(cv, avgLum(cv));   // 動態 sprite 每幀補框（同 swing/seesaw 前例）
+  }
+
+  // 篝火 12×13：兩幀火焰交替，不快取
+  function campfireBase(s) {
+    px(s, '#77828e', [[1, 11, 2, 2], [9, 11, 2, 2], [4, 12, 4, 1]]);   // 石圈
+    px(s, '#8a5f3a', [[2, 9, 8, 2]]);                                  // 橫柴
+    px(s, '#a8794f', [[3, 10, 2, 1], [8, 8, 2, 1]]);                   // 交叉柴端
+  }
+  function campfireSprite(tMs) {
+    const cv = document.createElement('canvas');
+    cv.width = 12; cv.height = 13;
+    const s = cv.getContext('2d');
+    campfireBase(s);
+    if (Math.floor(tMs / 400) % 2 === 0) {
+      px(s, '#e25822', [[4, 5, 4, 4]]);                    // 外焰
+      px(s, '#ff8c42', [[5, 3, 2, 5]]);                     // 中焰
+      px(s, '#ffe9a8', [[5, 6, 2, 2]]);                     // 焰心
+      px(s, '#e25822', [[3, 7, 1, 2], [8, 6, 1, 2]]);       // 側火舌
+    } else {
+      px(s, '#e25822', [[4, 4, 4, 5]]);
+      px(s, '#ff8c42', [[6, 2, 2, 5]]);                     // 火苗偏右跳
+      px(s, '#ffe9a8', [[5, 6, 2, 2]]);
+      px(s, '#e25822', [[3, 6, 1, 2]]);
+      px(s, '#ffca28', [[7, 1, 1, 1], [4, 2, 1, 1]]);       // 火星
+    }
+    return withOutline(cv, avgLum(cv));
+  }
+
   function decorSprite(kind, tMs) {
     if (kind === 'swing') return swingSprite(tMs);   // 鞦韆會微擺，不快取
     if (kind === 'seesaw') return seesawSprite(tMs); // 翹翹板持續蹺動，不快取
+    if (kind === 'cradle') return cradleSprite(tMs); // 搖籃持續輕搖，不快取
+    if (kind === 'campfire') return campfireSprite(tMs); // 火焰兩幀交替，不快取
     if (kind === 'bridge') {
       // 橋寬＝池塘直徑＋兩端搭岸 12px；池塘擴建時用另一個快取鍵，自動換加寬版
       const key = scenePondBig ? 'bridgeBig' : 'bridge';
@@ -273,6 +336,34 @@ const Render = {};
         const y = Math.round(4 + i * 14 / 15);
         s.fillRect(15 - i, y + 2, 2, 1);                        // 滑道底沿（增厚立體感）
       }
+    } else if (kind === 'sofa') {
+      cv.width = 20; cv.height = 12;
+      px(s, '#8a5f3a', [[1, 8, 18, 3], [1, 11, 2, 1], [17, 11, 2, 1]]);   // 木底座＋短腳
+      px(s, '#a8794f', [[1, 3, 3, 6], [16, 3, 3, 6]]);                    // 木扶手
+      px(s, '#79a568', [[4, 2, 12, 3]]);                                  // 苔蘚椅背
+      px(s, '#94c07f', [[4, 5, 12, 3]]);                                  // 苔蘚座墊
+      px(s, '#b8dba2', [[5, 2, 2, 1], [10, 3, 3, 1], [6, 5, 2, 1], [12, 6, 2, 1]]); // 苔蘚亮點
+      px(s, '#57804a', [[4, 4, 12, 1]]);                                  // 椅背座墊分界
+    } else if (kind === 'bunk') {
+      cv.width = 18; cv.height = 18;
+      px(s, '#8a5f3a', [[2, 3, 2, 14], [14, 3, 2, 14]]);   // 木柱
+      const shell = (y, c1, c2) => {
+        px(s, c1, [[3, y + 2, 12, 3], [4, y + 1, 10, 1], [6, y, 6, 1]]);
+        px(s, c2, [[6, y + 1, 1, 3], [9, y + 1, 1, 4], [12, y + 1, 1, 3]]);
+      };
+      shell(3, '#ffd3e0', '#e8aabb');    // 上舖（粉貝）
+      shell(11, '#d3f0ff', '#a9cfe0');   // 下舖（藍貝）
+      px(s, '#fff3b8', [[4, 4, 3, 1], [4, 12, 3, 1]]);     // 小枕頭
+      px(s, '#c79868', [[16, 8, 1, 9]]);                   // 梯柱
+      px(s, '#c79868', [[15, 9, 3, 1], [15, 12, 3, 1], [15, 15, 3, 1]]); // 梯橫檔
+    } else if (kind === 'gathering') {
+      // 樹樁收集槽：只畫空樁，槽內堅果由 nuts 陣列疊加繪製（依存量動態，見 drawNuts）
+      cv.width = 18; cv.height = 12;
+      px(s, '#8a5f3a', [[3, 6, 8, 6]]);                        // 樹樁身
+      px(s, '#a8794f', [[2, 4, 10, 3]]);                       // 樁頂
+      px(s, '#c79868', [[3, 5, 8, 1]]);                        // 年輪亮邊
+      px(s, '#5c4327', [[5, 4, 4, 2]]);                        // 樁頂的收集凹槽
+      px(s, '#79a568', [[1, 11, 3, 1], [12, 11, 5, 1]]);       // 草叢腳
     }
     const outlined = withOutline(cv, avgLum(cv));   // 裝飾同享自適應外框，不溶進草地
     decorCache.set(kind, outlined);
@@ -341,6 +432,71 @@ const Render = {};
       ctx.ellipse(d.x, d.y - 0.5, sp.width * 0.34, Math.max(1.4, sp.width * 0.12), 0, 0, 6.29);
       ctx.fill();
       ctx.drawImage(sp, Math.round(d.x - sp.width / 2), Math.round(d.y - sp.height));
+    }
+  }
+
+  /* ---------- 堅果搬運（採集點；純演出道具，跟 fruits 一樣不進存讀檔） ---------- */
+
+  // {x, y, state:'bush'|'carried'|'stored'|'dropped', locked, carrierId, slotIdx, born}
+  const nuts = [];
+  Render.nuts = nuts;
+  Render.addNut = (x, y) => { nuts.push({ x, y, state: 'bush', locked: false, born: performance.now() }); };
+  Render.nutStock = () => nuts.filter(n => n.state === 'stored').length;
+  // carried → dropped：寫入指定座標（呼叫端傳 carrier 當下位置，而非摘取當時的舊座標）
+  Render.dropNut = (nut, x, y) => {
+    nut.state = 'dropped'; nut.x = x; nut.y = y; nut.carrierId = null; nut.born = performance.now();
+  };
+  Render.storeNut = (nut, spot) => {
+    const stock = Render.nutStock();   // 先讀存量再改 state，這顆還沒算進去，slotIdx 才會從 0 起算
+    if (stock >= 3) { Render.dropNut(nut, spot.x, spot.y + 2); return; }   // 槽已滿：改掉在採集點旁，不硬塞
+    nut.slotIdx = stock; nut.state = 'stored'; nut.carrierId = null;
+    anims.push({ x: spot.x, y: spot.y - 7, start: performance.now(), dur: 700, type: 'nutStar' });
+  };
+  // 堅果被吃掉（扛著當場吃／送禮吃／槽內被啃）：從 nuts 移除＋觸發咀嚼掉屑動畫
+  Render.eatCarriedNut = (nut, creature) => {
+    const idx = nuts.indexOf(nut);
+    if (idx >= 0) nuts.splice(idx, 1);
+    const s = smooth.get(creature.id);
+    const x = s ? s.rx : creature.x, y = s ? s.ry : creature.y;
+    anims.push({ x, y: y - 6, start: performance.now(), dur: 1600, type: 'chewCrumbs' });
+  };
+  Render.eatStoredNut = creature => {
+    const nut = nuts.find(n => n.state === 'stored');
+    if (!nut) return false;
+    const removedSlot = nut.slotIdx;
+    nuts.splice(nuts.indexOf(nut), 1);
+    nuts.filter(n => n.state === 'stored' && n.slotIdx > removedSlot).forEach(n => n.slotIdx--);   // 槽位遞補，視覺連續
+    const s = smooth.get(creature.id);
+    const x = s ? s.rx : creature.x, y = s ? s.ry : creature.y;
+    anims.push({ x, y: y - 6, start: performance.now(), dur: 1600, type: 'chewCrumbs' });
+    return true;
+  };
+
+  const NUT_DROP_TTL_MS = 30000;
+  function drawNuts(world, tMs) {
+    for (let i = nuts.length - 1; i >= 0; i--) {
+      const n = nuts[i];
+      if (n.state === 'dropped' && tMs - n.born > NUT_DROP_TTL_MS) { nuts.splice(i, 1); continue; }
+      let x, y;
+      if (n.state === 'carried') {
+        const cr = world.creatures.find(c => c.id === n.carrierId);
+        const s = smooth.get(n.carrierId);
+        // 保底：carrier 異常消失時用「上一幀持續同步的最後位置」掉落，不要 splice 憑空消失——
+        // ui.js 的 250ms interval 也會在下一輪嘗試 dropNut，但 render 這裡每幀都跑，會先一步處理掉
+        if (!cr || !s) { Render.dropNut(n, n.x, n.y); continue; }
+        x = s.rx; y = s.ry - getSprite(cr).height - 2;    // 疊在頭頂 y-2px
+        n.x = x; n.y = y;   // 持續同步，讓上面這個保底分支隨時有意義的座標可用
+      } else if (n.state === 'stored') {
+        const spot = (world.decor || []).find(d => d.kind === 'gathering');
+        if (!spot) { nuts.splice(i, 1); continue; }
+        x = spot.x - 3 + (n.slotIdx ?? 0) * 3; y = spot.y - 7;   // 樁頂凹槽三個位置
+      } else {
+        x = n.x; y = n.y;   // bush / dropped：固定位置
+      }
+      ctx.globalAlpha = n.state === 'dropped' ? Math.max(0, 1 - (tMs - n.born) / NUT_DROP_TTL_MS) : 1;
+      ctx.fillStyle = '#b5813f'; ctx.fillRect(Math.round(x) - 1, Math.round(y) - 1, 2, 2);
+      ctx.fillStyle = '#8a5f3a'; ctx.fillRect(Math.round(x) - 1, Math.round(y) - 1, 2, 1);
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -542,6 +698,14 @@ const Render = {};
         dir: rnd() < 0.5 ? 1 : -1,
         h: 9 + rnd() * 5,                // 跳躍高度
       } });
+    } else if (kind === 'wish') {
+      // 火星許願：一顆火星從篝火升起，飄進天空區，化作小星星淡出
+      const fire = (world.decor || []).find(d => d.kind === 'campfire');
+      if (!fire) return;
+      ambients.push({ kind, start: now, dur: 4000, data: {
+        x0: fire.x, y0: fire.y - 9,
+        x1: fire.x + (rnd() - 0.5) * 40, y1: C.SKY_H * (0.3 + rnd() * 0.4),
+      } });
     }
     // 'nap' 由 ui 直接改 action，不需要動畫項
   };
@@ -660,6 +824,21 @@ const Render = {};
           const sx = Math.round(fx), sy = Math.round(py - 1);
           ctx.fillRect(sx, sy - 1, 1, 1); ctx.fillRect(sx - 2, sy, 1, 1); ctx.fillRect(sx + 2, sy, 1, 1);
         }
+      } else if (a.kind === 'wish') {
+        // 前段：橘色火星緩緩上升；後段：閃兩下化作小星星（十字光暈同紀念星語言）
+        const ease = 1 - Math.pow(1 - t, 2);
+        const wx = a.data.x0 + (a.data.x1 - a.data.x0) * ease + Math.sin(t * 8) * 1.5;
+        const wy = a.data.y0 + (a.data.y1 - a.data.y0) * ease;
+        if (t < 0.7) {
+          ctx.fillStyle = `rgba(255,180,80,${fade})`;
+          ctx.fillRect(Math.round(wx), Math.round(wy), 1, 1);
+        } else if (Math.floor((t - 0.7) * 30) % 2 === 0) {
+          ctx.fillStyle = `rgba(255,255,240,${fade})`;
+          ctx.fillRect(Math.round(wx), Math.round(wy), 1, 1);
+          ctx.fillStyle = `rgba(255,255,240,${fade * 0.5})`;
+          ctx.fillRect(Math.round(wx) - 1, Math.round(wy), 1, 1);
+          ctx.fillRect(Math.round(wx) + 1, Math.round(wy), 1, 1);
+        }
       } else if (a.kind === 'reflect') {
         // 池塘倒影：水面碎光閃爍＋一圈圈慢速漣漪
         const px = C.WORLD_W * 0.79, py = C.WORLD_H * 0.8;
@@ -715,6 +894,8 @@ const Render = {};
     const alive = world.creatures.filter(c => c.stage !== 'star')
       .sort((a2, b2) => a2.y - b2.y);
     for (const cr of alive) drawCreature(cr, tMs, b);
+
+    drawNuts(world, tMs);   // 堅果（頭頂搬運／槽內存放／掉落）：疊在小動物之上才不會被擋住
 
     // 夜幕：整個畫面一起壓暗（畫在小動物之後），
     // 避免只壓地面時地平線把跨界的小動物切成兩截
@@ -911,6 +1092,29 @@ const Render = {};
             drawHeart(mx + spread - 2, my - 14 - tt * 20, 1,
               `rgba(255,${110 + (k % 3) * 30},${150 + (k % 2) * 40},${Math.max(0, 1 - tt / 1.4)})`);
           }
+        }
+      } else if (a.type === 'snuggle') {
+        // 前 70%：閃兩下（四段交替顯/隱）；後 30%：淡出
+        const blink = t < 0.7 ? Math.floor(t / 0.175) % 2 === 0 : true;
+        const alpha = t < 0.7 ? (blink ? 1 : 0) : 1 - (t - 0.7) / 0.3;
+        if (alpha > 0) {
+          ctx.fillStyle = `rgba(255,120,150,${alpha})`;
+          ctx.fillRect(Math.round(a.x) - 1, Math.round(a.y), 2, 2);
+        }
+      } else if (a.type === 'nutStar') {
+        // 投放成功：一顆小星星從凹槽彈起後淡出
+        const rise = Math.sin(t * Math.PI) * 5;
+        ctx.fillStyle = `rgba(255,240,180,${1 - t})`;
+        ctx.fillRect(Math.round(a.x), Math.round(a.y - rise), 1, 1);
+        ctx.fillRect(Math.round(a.x) - 1, Math.round(a.y - rise + 1), 1, 1);
+        ctx.fillRect(Math.round(a.x) + 1, Math.round(a.y - rise + 1), 1, 1);
+      } else if (a.type === 'chewCrumbs') {
+        // 咀嚼掉屑：三顆碎屑分批落下淡出
+        for (let k = 0; k < 3; k++) {
+          const tt = t * 1.6 - k * 0.28;
+          if (tt < 0 || tt > 1) continue;
+          ctx.fillStyle = `rgba(180,140,90,${1 - tt})`;
+          ctx.fillRect(Math.round(a.x - 2 + k * 2), Math.round(a.y + tt * 5), 1, 1);
         }
       } else if (a.type === 'bloom') {
         // 揭曉閃光：擴散白圈
