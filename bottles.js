@@ -55,6 +55,19 @@ const Bottles = {};
   };
 
   Bottles.touchSaved = () => { const b = active(); if (b) { b.savedAt = Date.now(); saveMeta(); } };
+  // 改名：獨立用 nameSavedAt 進雲端合併判斷，不能動 savedAt——
+  // savedAt 是「世界存檔」新舊的判斷依據，cloudMerge 用它決定要不要拿雲端的 save 覆蓋本地。
+  // 改名沒有動到世界存檔本體，若跟著推進 savedAt，會讓這瓶子看起來比實際世界進度更新，
+  // 導致跨裝置合併時，這台裝置上（可能早就沒在玩的）舊世界進度反而蓋過別台裝置的新進度
+  Bottles.rename = function (id, name) {
+    const b = meta.bottles.find(x => x.id === id);
+    const v = (name || '').trim();
+    if (!b || !v) return false;
+    b.name = v.slice(0, 8);
+    b.nameSavedAt = Date.now();
+    saveMeta();
+    return true;
+  };
   Bottles.activeName = () => active()?.name || '';
   Bottles.hasMeta = () => !!meta;
   Bottles.list = () => meta.bottles;
@@ -127,10 +140,20 @@ const Bottles = {};
         localStorage.setItem(bkey(rb.id), save);
         meta.bottles.push({ ...rb });
         added++;
-      } else if ((rb.savedAt || 0) > (local.savedAt || 0)) {
-        localStorage.setItem(bkey(rb.id), save);
-        local.name = rb.name; local.savedAt = rb.savedAt;
-        updated++;
+      } else {
+        // 世界存檔／名字各自獨立比較新舊（各自 savedAt/nameSavedAt 新者勝）：
+        // 避免只改了名字沒真的玩過的一端，用舊世界進度蓋過另一端更新的進度
+        let changed = false;
+        if ((rb.savedAt || 0) > (local.savedAt || 0)) {
+          localStorage.setItem(bkey(rb.id), save);
+          local.savedAt = rb.savedAt;
+          changed = true;
+        }
+        if ((rb.nameSavedAt || 0) > (local.nameSavedAt || 0)) {
+          local.name = rb.name; local.nameSavedAt = rb.nameSavedAt;
+          changed = true;
+        }
+        if (changed) updated++;
       }
     });
     if (added || updated) saveMeta();
@@ -138,6 +161,49 @@ const Bottles = {};
   };
 
   /* ---------- 瓶子面板（🫙） ---------- */
+
+  // 名字顯示：文字＋常駐 ✏️（同 ui.js 小生物改名的視覺語言，讓「可以改名」被看見）
+  function setBottleNameLabel(nmEl, b) {
+    nmEl.textContent = b.name;
+    const pen = document.createElement('span');
+    pen.className = 'pen'; pen.textContent = '✏️';
+    nmEl.appendChild(pen);
+  }
+
+  function startBottleRename(b, nmEl, panel, world) {
+    if (nmEl.querySelector('input')) return;
+    const input = document.createElement('input');
+    input.value = b.name; input.maxLength = 8;
+    nmEl.textContent = ''; nmEl.appendChild(input);
+    const btns = document.createElement('span');
+    btns.className = 'editBtns';
+    const ok = document.createElement('button');
+    ok.textContent = '✓'; ok.style.background = '#3f9e4d';
+    const no = document.createElement('button');
+    no.textContent = '✕'; no.style.background = '#7a8290';
+    btns.appendChild(ok); btns.appendChild(no);
+    nmEl.appendChild(btns);
+    input.focus(); input.select();
+    const finish = save => {
+      if (save && Bottles.rename(b.id, input.value)) {
+        panel.remove();
+        Bottles.openPanel(world);   // 重開面板：讓新名字重新渲染
+        // 改的剛好是目前使用中的瓶子時，分頁標題也一起換，不用等重新整理
+        if (b.id === Bottles.activeId()) document.title = `🌱 ${Bottles.activeName()}`;
+        return;
+      }
+      nmEl.innerHTML = '';
+      setBottleNameLabel(nmEl, b);
+    };
+    ok.onclick = ev => { ev.stopPropagation(); finish(true); };
+    no.onclick = ev => { ev.stopPropagation(); finish(false); };
+    input.onkeydown = e => {
+      e.stopPropagation();
+      if (e.key === 'Enter') finish(true);
+      else if (e.key === 'Escape') finish(false);
+    };
+    input.onclick = e => e.stopPropagation();
+  }
 
   Bottles.openPanel = function (world) {
     document.querySelector('.panel')?.remove();
@@ -167,7 +233,9 @@ const Bottles = {};
       icon.textContent = '🫙';
       nd.appendChild(icon);
       const nm = document.createElement('div');
-      nm.className = 'nm'; nm.textContent = b.name;
+      nm.className = 'nm';
+      setBottleNameLabel(nm, b);
+      nm.onclick = ev => { ev.stopPropagation(); startBottleRename(b, nm, panel, world); };
       nd.appendChild(nm);
       const dt = document.createElement('div');
       dt.className = 'nm'; dt.style.opacity = .55;

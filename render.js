@@ -266,11 +266,7 @@ const Render = {};
     px(s, '#8a5f3a', [[2, 9, 8, 2]]);                                  // 橫柴
     px(s, '#a8794f', [[3, 10, 2, 1], [8, 8, 2, 1]]);                   // 交叉柴端
   }
-  function campfireSprite(tMs) {
-    const cv = document.createElement('canvas');
-    cv.width = 12; cv.height = 13;
-    const s = cv.getContext('2d');
-    campfireBase(s);
+  function campfireFlame(s, tMs) {
     if (Math.floor(tMs / 400) % 2 === 0) {
       px(s, '#e25822', [[4, 5, 4, 4]]);                    // 外焰
       px(s, '#ff8c42', [[5, 3, 2, 5]]);                     // 中焰
@@ -283,7 +279,28 @@ const Render = {};
       px(s, '#e25822', [[3, 6, 1, 2]]);
       px(s, '#ffca28', [[7, 1, 1, 1], [4, 2, 1, 1]]);       // 火星
     }
+  }
+  function campfireSprite(tMs) {
+    const cv = document.createElement('canvas');
+    cv.width = 12; cv.height = 13;
+    const s = cv.getContext('2d');
+    campfireBase(s);
+    campfireFlame(s, tMs);
     return withOutline(cv, avgLum(cv));
+  }
+  // 晚會期間單獨疊畫的火焰層（不含底座／不加外框）：篝火晚會生物圍坐時，
+  // decor 一律畫在小動物身後，體型大的生物會把整團火完全蓋住、只剩生物擠在一起像相撲。
+  // party phase 中把跳動的火苗疊在生物之上，讓火焰維持視覺焦點。
+  // 尺寸／內容位移刻意比照 withOutline 的 +2 padding（內容從 (1,1) 起畫）：
+  // campfireSprite 實際輸出是 outline 過的 14×15，視覺內容比 canvas 尺寸內縮 1px，
+  // 這裡尺寸系統不跟著對齊的話，疊加的火焰會比原本 decor 畫的火焰整體低 1px
+  function campfireFlameOverlay(tMs) {
+    const cv = document.createElement('canvas');
+    cv.width = 12 + 2; cv.height = 13 + 2;
+    const s = cv.getContext('2d');
+    s.translate(1, 1);
+    campfireFlame(s, tMs);
+    return cv;
   }
 
   function decorSprite(kind, tMs) {
@@ -624,6 +641,10 @@ const Render = {};
   Render.isNight = world => brightness(world) < 0.35;
   Render.isDay = world => brightness(world) > 0.6;
 
+  // 篝火晚會 party phase 開關（ui.js 進出 party phase 時呼叫）：開啟時 draw() 會把火焰疊在小動物之上
+  let campfireBlazing = false;
+  Render.setCampfireParty = on => { campfireBlazing = !!on; };
+
   Render.playAmbient = function (kind, world) {
     const now = performance.now();
     const rnd = Math.random;
@@ -894,6 +915,15 @@ const Render = {};
     const alive = world.creatures.filter(c => c.stage !== 'star')
       .sort((a2, b2) => a2.y - b2.y);
     for (const cr of alive) drawCreature(cr, tMs, b);
+
+    // 篝火晚會：火焰疊在生物之上，維持視覺焦點（見 campfireFlameOverlay 說明）
+    if (campfireBlazing) {
+      const fire = (world.decor || []).find(d => d.kind === 'campfire');
+      if (fire) {
+        const flame = campfireFlameOverlay(tMs);
+        ctx.drawImage(flame, Math.round(fire.x - flame.width / 2), Math.round(fire.y - flame.height));
+      }
+    }
 
     drawNuts(world, tMs);   // 堅果（頭頂搬運／槽內存放／掉落）：疊在小動物之上才不會被擋住
 

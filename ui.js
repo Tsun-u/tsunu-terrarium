@@ -99,6 +99,14 @@ const UI = {};
   }
   .node canvas { image-rendering: pixelated; display: block; margin: 0 auto; }
   .node .nm { color: #dde; font-size: 12px; margin-top: 2px; }
+  .node .nm .pen { font-size: 11px; opacity: .75; margin-left: 3px; }
+  .node .nm input { font-size: 12px; width: 56px; background: #101624; color: #eef;
+                    border: 1px solid #557; border-radius: 5px; padding: 1px 3px;
+                    font-family: inherit; }
+  .node .editBtns button {
+    border: none; border-radius: 6px; width: 22px; height: 20px; margin-left: 3px; padding: 0;
+    font-size: 11px; cursor: pointer; color: #fff;
+  }
   .node .badge { position: absolute; right: 2px; top: 0; font-size: 11px; }
   .node .crown { position: absolute; left: 2px; top: 0; font-size: 11px; }
   .node.hl-self   { border-color: #ffd54f; background: rgba(255,213,79,.15); }
@@ -1103,11 +1111,15 @@ const UI = {};
     const kid = kids[Math.floor(Math.random() * kids.length)];
     pranking = true;
     busyIds.add(kid.id);
-    const state = { phase: 'walk', until: Date.now() + 25000 };
+    // walkUntil（集合超時）／flickUntil（按燈計時）分開存放：共用一個 until 時，
+    // 外層 generic guard 會搶在 flick phase 的「提前 100ms 心虛落跑」判斷之前攔截，
+    // interval 250ms 粒度下常常直接跨過那 100ms 窗口，落跑動畫永遠演不到（同 cradle/bunk 前例）
+    const state = { phase: 'walk', walkUntil: Date.now() + 25000, flickUntil: null };
     const iv = setInterval(() => {
       const c = W.creatures.find(x => x.id === kid.id);
       const lt = (W.decor || []).find(d => d.kind === 'lantern');
-      if (!c || !lt || c.stage !== 'child' || Date.now() > state.until) {
+      // walkUntil 只管 walk 階段；flick 階段交給下面的 flickUntil 判斷
+      if (!c || !lt || c.stage !== 'child' || (state.phase === 'walk' && Date.now() > state.walkUntil)) {
         pranking = false; busyIds.delete(kid.id); clearInterval(iv);
         Render.setLanternPrank(null);
         return;
@@ -1117,8 +1129,8 @@ const UI = {};
         const d = Math.hypot(c.x - tx, c.y - ty) || 1;
         if (d < 4) {
           state.phase = 'flick';
-          state.until = Date.now() + 3800 + Math.random() * 1700;   // 狂按 3.8~5.5 秒
-          Render.setLanternPrank({ x: lt.x, y: lt.y, until: state.until });
+          state.flickUntil = Date.now() + 3800 + Math.random() * 1700;   // 狂按 3.8~5.5 秒
+          Render.setLanternPrank({ x: lt.x, y: lt.y, until: state.flickUntil });
         } else {
           c.action = 'walk'; c.actionUntil = W.tick + 4;
           c.vx = (tx - c.x) / d * C.WALK_SPEED_MAX * 0.9;
@@ -1129,7 +1141,7 @@ const UI = {};
         c.action = 'idle'; c.actionUntil = W.tick + 4;
         c.vx = 0; c.vy = 0;
         c.x = tx + (Math.floor(performance.now() / 280) % 2 ? 0.8 : -0.8);
-        if (Date.now() > state.until - 100) {
+        if (Date.now() > state.flickUntil - 100) {
           // 玩夠了：心虛落跑！
           const ang = Math.random() * Math.PI * 2;
           c.action = 'walk'; c.actionUntil = W.tick + 6;
@@ -1407,26 +1419,30 @@ const UI = {};
         if (lounging.partnerId != null) busyIds.delete(lounging.partnerId);
         lounging = null; clearInterval(iv); return;   // 家具被收走/伴侶消失/超時 → 收工
       }
-      // 每輪用當下家具座標重算座位，家具被搬動時跟著走（同 seesaw/splash 風格）
-      const seatMx = sf.x + (cp ? -3 : 0), seatPx = sf.x + 3, seatY = sf.y - 7;
+      // 每輪用當下家具座標重算座位，家具被搬動時跟著走（同 seesaw/splash 風格）。
+      // 雙人座：x 間距拉到 8px（依偎收 1px 後回到 6px，跟單人時同寬，不會比原設計更擠）；
+      // 加 y 前後交錯（±1px）讓繪製順序穩定、疊圖時兩隻的輪廓都露得出來，不靠 sort tie-break 碰運氣
+      // ——較寬的形狀基因兩隻幾乎完全疊在一起、看起來像合體不像依偎（上線後村民實測回報）
+      const seatMx = sf.x + (cp ? -4 : 0), seatPx = sf.x + 4;
+      const seatMy = sf.y - 7 + (cp ? 1 : 0), seatPy = sf.y - 7 - 1;
       if (lounging.phase === 'walk') {
-        const dm = Math.hypot(cm.x - seatMx, cm.y - seatY) || 1;
+        const dm = Math.hypot(cm.x - seatMx, cm.y - seatMy) || 1;
         const mArrived = dm < 4;
         if (!mArrived) {
           cm.action = 'walk'; cm.actionUntil = W.tick + 4;
           cm.vx = (seatMx - cm.x) / dm * C.WALK_SPEED_MAX * 0.8;
-          cm.vy = (seatY - cm.y) / dm * C.WALK_SPEED_MAX * 0.8;
+          cm.vy = (seatMy - cm.y) / dm * C.WALK_SPEED_MAX * 0.8;
         } else {
           cm.action = 'idle'; cm.actionUntil = W.tick + 4; cm.vx = 0; cm.vy = 0;
         }
         let pArrived = true;
         if (cp) {
-          const dp = Math.hypot(cp.x - seatPx, cp.y - seatY) || 1;
+          const dp = Math.hypot(cp.x - seatPx, cp.y - seatPy) || 1;
           pArrived = dp < 4;
           if (!pArrived) {
             cp.action = 'walk'; cp.actionUntil = W.tick + 4;
             cp.vx = (seatPx - cp.x) / dp * C.WALK_SPEED_MAX * 0.8;
-            cp.vy = (seatY - cp.y) / dp * C.WALK_SPEED_MAX * 0.8;
+            cp.vy = (seatPy - cp.y) / dp * C.WALK_SPEED_MAX * 0.8;
           } else {
             cp.action = 'idle'; cp.actionUntil = W.tick + 4; cp.vx = 0; cp.vy = 0;
           }
@@ -1434,10 +1450,10 @@ const UI = {};
         if (mArrived && pArrived) {
           lounging.phase = 'sit';
           lounging.until = Date.now() + 20000 + Math.random() * 15000;   // 坐 20~35 秒
-          cm.x = seatMx + (cp ? 1 : 0); cm.y = seatY;   // 落座；有伴侶時各往中間偏 1px 依偎
+          cm.x = seatMx + (cp ? 1 : 0); cm.y = seatMy;   // 落座；有伴侶時各往中間偏 1px 依偎
           if (cp) {
-            cp.x = seatPx - 1; cp.y = seatY;
-            Render.snuggleAt((cm.x + cp.x) / 2, seatY - 6);
+            cp.x = seatPx - 1; cp.y = seatPy;
+            Render.snuggleAt((cm.x + cp.x) / 2, seatMy - 6);
           } else if (cm.stage === 'elder') {
             cm.action = 'gaze';   // 搖椅分支：老人家獨坐看天空
           }
@@ -1445,9 +1461,9 @@ const UI = {};
       } else {
         // sit：坐滿 lounging.until 由外層 timeout 判斷收工，這裡只負責維持坐姿
         cm.actionUntil = W.tick + 4; cm.vx = 0; cm.vy = 0;
-        cm.x = seatMx + (cp ? 1 : 0); cm.y = seatY;
+        cm.x = seatMx + (cp ? 1 : 0); cm.y = seatMy;
         if (cm.action !== 'gaze') cm.action = 'idle';
-        if (cp) { cp.action = 'idle'; cp.actionUntil = W.tick + 4; cp.vx = 0; cp.vy = 0; cp.x = seatPx - 1; cp.y = seatY; }
+        if (cp) { cp.action = 'idle'; cp.actionUntil = W.tick + 4; cp.vx = 0; cp.vy = 0; cp.x = seatPx - 1; cp.y = seatPy; }
       }
     }, 250);
   }
@@ -1679,9 +1695,13 @@ const UI = {};
   /* ---------- 篝火（夜間限定：全遊戲第一個群聚事件＋火星許願） ---------- */
 
   // 座位：內側兩位較近火、外側兩位再往外＋往前站，圍出弧形；
-  // 篝火 sprite 僅 12px 寬，間距需夠大才能避免生物疊在一起、把火焰整個遮住
+  // decor 一律畫在小動物身後（Render.draw 順序），生物離火太近會把整團火焰完全蓋住，
+  // 兩隻生物間距不夠則會疊成一坨看不出輪廓——兩者疊加就是「像相撲」的成因。
+  // x 用最大體型（size 1.15、半徑約 9px）反推：內側兩位中心距拉到 18px 剛好不重疊；
+  // y 內側從 3 加大到 8，讓生物退開到篝火火焰視覺主體之外，露出跳動的火苗當視覺焦點；
+  // 外側再往外＋往前多站一點（y 比內側多 5px），前後層次錯落，不會跟內側同一水平線完全疊住
   function fireSeatsFor(n) {
-    const L2 = { x: -16, y: 6 }, L1 = { x: -6, y: 3 }, R1 = { x: 6, y: 3 }, R2 = { x: 16, y: 6 };
+    const L2 = { x: -18, y: 13 }, L1 = { x: -9, y: 8 }, R1 = { x: 9, y: 8 }, R2 = { x: 18, y: 13 };
     if (n === 2) return [L1, R1];
     if (n === 3) return Math.random() < 0.5 ? [L2, L1, R1] : [L1, R1, R2];
     return [L2, L1, R1, R2];
@@ -1710,8 +1730,15 @@ const UI = {};
       const alive = cs.filter(Boolean);
       if (!fr || alive.length < 2) {
         campfiring.ids.forEach(id => busyIds.delete(id));
+        Render.setCampfireParty(false);
         campfiring = null; clearInterval(iv); return;   // 篝火被收走/湊不到 2 隻 → 收工
       }
+      // 座位目標點 clamp 到世界邊界內（同 sim.js stepMovement 的 margin=6）：篝火放在地圖邊緣時
+      // 外側座位 x±18 可能超界，生物朝界外走會被邊界反彈卡住、永遠到不了、45 秒超時才解散
+      const seatXY = i => ({
+        x: Math.max(6, Math.min(C.WORLD_W - 6, fr.x + campfiring.seats[i].x)),
+        y: Math.max(C.SKY_H + 6, Math.min(C.WORLD_H - 6, fr.y + campfiring.seats[i].y)),
+      });
       if (campfiring.phase === 'walk') {
         if (Date.now() > campfiring.until) {
           // 集合超時：到場的有幾隻就演幾隻，還沒到的放棄；不夠 2 隻才整場解散。
@@ -1719,7 +1746,7 @@ const UI = {};
           const arrived = [];
           cs.forEach((c, i) => {
             if (!c) return;
-            const tx = fr.x + campfiring.seats[i].x, ty = fr.y + campfiring.seats[i].y;
+            const { x: tx, y: ty } = seatXY(i);
             if (Math.hypot(c.x - tx, c.y - ty) < 4) arrived.push(i);
           });
           if (arrived.length < 2) {
@@ -1734,12 +1761,13 @@ const UI = {};
           campfiring.phase = 'party';
           campfiring.partyUntil = Date.now() + 25000 + Math.random() * 15000;
           campfiring.wishAt = Date.now() + (campfiring.partyUntil - Date.now()) * 0.4;
+          Render.setCampfireParty(true);
           return;
         }
         let allArrived = true;
         cs.forEach((c, i) => {
           if (!c) return;
-          const tx = fr.x + campfiring.seats[i].x, ty = fr.y + campfiring.seats[i].y;
+          const { x: tx, y: ty } = seatXY(i);
           const d = Math.hypot(c.x - tx, c.y - ty) || 1;
           if (d >= 4) {
             allArrived = false;
@@ -1754,10 +1782,12 @@ const UI = {};
           campfiring.phase = 'party';
           campfiring.partyUntil = Date.now() + 25000 + Math.random() * 15000;   // 晚會 25~40 秒
           campfiring.wishAt = Date.now() + (campfiring.partyUntil - Date.now()) * 0.4;   // 中段許願
+          Render.setCampfireParty(true);
         }
       } else {
         if (Date.now() > campfiring.partyUntil) {
           campfiring.ids.forEach(id => busyIds.delete(id));
+          Render.setCampfireParty(false);
           campfiring = null; clearInterval(iv); return;
         }
         // party：晚會中段觸發一次火星許願（elder 優先抬頭 gaze）
@@ -1773,7 +1803,7 @@ const UI = {};
         // 微晃取暖，相位錯開（同潑水仗「你來我往」手法）；許願中的那隻維持 gaze 不晃動
         cs.forEach((c, i) => {
           if (!c) return;
-          const tx = fr.x + campfiring.seats[i].x, ty = fr.y + campfiring.seats[i].y;
+          const { x: tx, y: ty } = seatXY(i);
           c.actionUntil = W.tick + 4; c.vx = 0; c.vy = 0;
           if (c.id === campfiring.wishGazeId && Date.now() < campfiring.wishGazeUntil) {
             c.action = 'gaze'; c.x = tx; c.y = ty;
