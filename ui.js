@@ -1511,10 +1511,11 @@ const UI = {};
         bunking = null; clearInterval(iv); return;   // 集合／爬梯階段超時 → 收工
       }
       // 每輪用當下家具座標重算，家具被搬動時跟著走（同 seesaw/splash 風格）
+      // 上下舖 y 偏移對齊 render.js 加高後的 bunk sprite（見該處註解：底部錨點間距抓 22.5px）
       const foot = { x: bk.x + 7, y: bk.y - 1 };
-      const top = { x: bk.x + 7, y: bk.y - 9 };
-      const upperPillow = { x: bk.x - 3.5, y: bk.y - 14 };
-      const lowerPillow = { x: bk.x - 3.5, y: bk.y - 6 };
+      const top = { x: bk.x + 7, y: bk.y - 27 };
+      const upperPillow = { x: bk.x - 3.5, y: bk.y - 30.5 };
+      const lowerPillow = { x: bk.x - 3.5, y: bk.y - 7.5 };
       const go = (c, tx, ty) => {
         const d = Math.hypot(c.x - tx, c.y - ty) || 1;
         if (d < 4) { c.action = 'idle'; c.actionUntil = W.tick + 4; c.vx = 0; c.vy = 0; return true; }
@@ -1548,7 +1549,7 @@ const UI = {};
       } else if (bunking.phase === 'climb') {
         const climber = bunking.upperId === ca.id ? ca : cb;
         const other = bunking.upperId === ca.id ? cb : ca;
-        bunking.climbP = Math.min(1, bunking.climbP + 250 / 1700);   // 等速爬梯 ~1.7 秒（同滑梯 climb 相位）
+        bunking.climbP = Math.min(1, bunking.climbP + 250 / 5500);   // 爬梯距離拉長(8→26px)，時長等比例拉長維持等速感
         climber.action = 'idle'; climber.actionUntil = W.tick + 4; climber.vx = 0; climber.vy = 0;
         climber.x = foot.x; climber.y = foot.y + (top.y - foot.y) * bunking.climbP;
         const otherAt = go(other, lowerPillow.x, lowerPillow.y);
