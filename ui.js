@@ -1511,11 +1511,11 @@ const UI = {};
         bunking = null; clearInterval(iv); return;   // 集合／爬梯階段超時 → 收工
       }
       // 每輪用當下家具座標重算，家具被搬動時跟著走（同 seesaw/splash 風格）
-      // 上下舖 y 偏移對齊 render.js 加高後的 bunk sprite（見該處註解：底部錨點間距抓 22.5px）
-      const foot = { x: bk.x + 7, y: bk.y - 1 };
-      const top = { x: bk.x + 7, y: bk.y - 27 };
-      const upperPillow = { x: bk.x - 3.5, y: bk.y - 30.5 };
-      const lowerPillow = { x: bk.x - 3.5, y: bk.y - 7.5 };
+      // 上下舖座標對齊 render.js 的 bunk sprite（見該處註解：y 底部錨點間距抓 23px、x 因加寬床身變寬 4px 而右移對齊梯柱新位置）
+      const foot = { x: bk.x + 9, y: bk.y - 1 };
+      const top = { x: bk.x + 9, y: bk.y - 27 };
+      const upperPillow = { x: bk.x - 5.5, y: bk.y - 30.5 };
+      const lowerPillow = { x: bk.x - 5.5, y: bk.y - 7.5 };
       const go = (c, tx, ty) => {
         const d = Math.hypot(c.x - tx, c.y - ty) || 1;
         if (d < 4) { c.action = 'idle'; c.actionUntil = W.tick + 4; c.vx = 0; c.vy = 0; return true; }
